@@ -43,7 +43,6 @@ coverage.xml
 *.log
 *.pot
 
-docs
 tests
 .pytest_cache
 settings.json
