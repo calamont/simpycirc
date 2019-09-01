@@ -1,2 +1,2 @@
 # simpycirc
-A simple package for easily simulating analogue circuits.
+A simple package for easily simulating linear electrical circuits.
