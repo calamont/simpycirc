@@ -1,0 +1,68 @@
+.. _circuits:
+
+Building Circuits
+==============================
+
+
+
+Circuits are defined in simpycirc as callable functions, making it easier to simulate the response of a given circuit for different component values. These circuits are generated using the :func:`simpycirc.circuit.simulate` function, which can be called in two manners.
+
+Writing circuits by hand
+-------------------------
+For relatively simple circuits, it may feel more intuitive to simply write out the circuit, similar to how one might with a pen and paper. To achieve this, define the circuit within a function and decorate it with :func:`simpycirc.circuit.simulate`. This magically identifies the circuit components and builds the circuit into a callable function. The circuit can be simulated by calling the function like any other function, with the necessary component values passed as args or kwargs.
+
+
+.. code:: python
+
+
+
+
+    from simpycirc.circuit import simulator
+    from simpycirc.figures import bode
+
+    @simulator
+    def my_circuit():
+        return R1 + (R2 + C1)
+
+    V1 = my_circuit(R1=100, R2=200, C1=100e-9)
+    V2 = my_circuit(R1=100, R2=100, C1=200e-9)
+
+    fig, ax = plt.subplots()
+    bode(V1, V2)
+
+
+
+Default values can be defined the same as for a regular function.
+
+
+.. code:: python
+
+    @simulator
+    def my_circuit(R1=100, R2=200, C1=100e-9):
+        return R1 + (R2 + C1)
+
+    V1 = my_circuit()
+
+
+Defining netlists
+-----------------
+
+For more verbose circuits, it is recommended to define a netlist, which is given by the :func:`simpycirc.utils.Netlist` object. This may feel more familiar for users already well acquainted with SPICE. Each circuit component is defined as an attribute of
+
+The simplest method to create thesSimpycirc makes it simple to define and simulate circuits. Writing verbose netlists (a la SPICE) is useful once a circuit has reached a sufficient level of complexity, but not necessary for simple circuits with fewer than five or so components.
+
+
+.. code:: python
+
+    from simpycirc.utils import Netlist
+
+    nl = Netlist()
+
+    nl.R1 = (1, 2), 100
+    nl.R2 = (2, 3), 200
+    nl.C1 = (2, 3), 100e-9
+
+    def my_circuit(R1=100, R2=200, C1=100e-9):
+        return R1 + (R2 + C1)
+
+    V1 = my_circuit()

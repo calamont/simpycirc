@@ -26,7 +26,7 @@ wj = 2j * np.pi
 #     elif measure == "V":
 #         data = V[:, node].flatten()
 
-# TODO: Look into using 
+
 def simulator(circuit=None, freq=1000.0, **kwargs):
     """Generates function for simulating circuit.
 
@@ -55,9 +55,8 @@ def simulator(circuit=None, freq=1000.0, **kwargs):
             netlist, total_nodes, undef_args, def_args = _parse_circuit_dict(
                 circuit, **kwargs
             )
-
-        length = len(set(total_nodes)) - 1
-        print(total_nodes)
+        print(netlist, "here")
+        length = len(set(total_nodes))
         A = np.zeros((freq.shape[0], length, length), dtype=dtype)
         comp_vals = {}
         for component, val in netlist.items():
@@ -66,7 +65,7 @@ def simulator(circuit=None, freq=1000.0, **kwargs):
                 if component[0] != "V":
                     value = _impedance(component, value, freq)
                 comp_vals[component] = value
-                # print(val)
+                print(val)
                 _stamp(A, val["nodes"], value, voltage_source=val["source"])
         total_args = undef_args + def_args
 
@@ -133,7 +132,7 @@ def _parse_circuit_dict(circuit, **kwargs):
     for key, val in circuit.items():
         new_nodes = []
         for node in val["nodes"]:
-            # if node > 0:
+            #if node > 0:
             new_nodes.append(node)
         total_nodes.extend(new_nodes)
         netlist[key] = {"nodes": new_nodes, "value": circuit[key]["value"]}
@@ -141,10 +140,8 @@ def _parse_circuit_dict(circuit, **kwargs):
         if key[0] == "V":
             voltage_source += 1
             netlist[key]["source"] = voltage_source
-            total_nodes.append(key)
     # netlist = circuit
     print(netlist)
-
     undef_args = sorted([key for key, val in circuit.items() if not val["value"]])
 
     if voltage_source == 0:
@@ -162,9 +159,9 @@ def _parse_circuit_dict(circuit, **kwargs):
         def_args = list(set(netlist.keys()).union(set(kwargs.keys())))
     else:
         def_args = []
-    #   try:
-    #       netlist.pop("V")
-    #   except ValueError:
+#   try:
+#       netlist.pop("V")
+#   except ValueError:
 
     return netlist, total_nodes, undef_args, def_args
 
@@ -188,7 +185,7 @@ def _netlist_converter(node_list, argspec):
 def _solve_circuit(A, freq, netlist, comp_vals, length, undef_args, *args, **kwargs):
     """Solves circuit using modified nodal analysis"""
     passed_args = []
-
+ 
     for arg in args:
 
         component = undef_args.pop(0)
@@ -212,7 +209,6 @@ def _solve_circuit(A, freq, netlist, comp_vals, length, undef_args, *args, **kwa
         Z = _impedance(component, val, freq)
         _stamp(A, netlist[component]["nodes"], Z)
 
-    # TODO: Do we need to remove "V" anymore?
     try:
         undef_args.remove("V")
     except ValueError:
@@ -220,13 +216,10 @@ def _solve_circuit(A, freq, netlist, comp_vals, length, undef_args, *args, **kwa
     if len(undef_args) > 0:
         raise Exception(f"{undef_args[0]} undefined")
 
+    # A[:, 0, -1] = 1
+    # A[:, -1, 0] = 1
     b = np.zeros(length)[None, :]
-    for k, v in netlist.items():
-        if v["source"]:
-            b[:, -v["source"]] = v["value"]
-    print(A[0,-2:,:])
-    print(A[0,:,-1])
-    print(b)
+    b[:, -1] = 1
     return np.linalg.solve(A, b)
 
 
@@ -318,10 +311,6 @@ def _parallel_Z(Z1, Z2):
     return Z1 * Z2 / (Z1 + Z2)
 
 
-def C(cap, freq):
-    return 1 / (2j * np.pi * freq * cap)
-
-
 def _impedance(component, value, freq):
     """Calculates 1/impedance from transfer function of component
 
@@ -355,26 +344,26 @@ def _stamp(A, idxs, val, subtract=False, voltage_source=False):
         subtract (bool, optional): To be used to remove a component from the MNA matrix. Defaults to False.
     """
 
+    # Need to have this function take into account V in a netlist
+
     if subtract:
         val = val * -1
-
-    # Allow node indices to be compatible with the zero-indexed A array
-    arr_idxs = [idx_ - 1 for idx_ in idxs if idx_ > 0]
-
+    arr_idxs = [idx_ -1 for idx_ in idxs if idx_ > 0]
+    
     if voltage_source:
-        # Reverse order of indices to add -1 to negative terminal
-        arr_idxs = arr_idxs[::-1]
-        A[:, arr_idxs[0], -voltage_source] = 1
-        A[:, -voltage_source, arr_idxs[0]] = 1
+        print(idxs, 'this is  herrrrrr')
+        A[:, arr_idxs[0], -voltage_source] = A[:, arr_idxs[0], -voltage_source] + val
+        A[:, -voltage_source, arr_idxs[0]] = A[:, -voltage_source, arr_idxs[0]] + val
         if len(arr_idxs) > 1:
-            A[:, arr_idxs[1], -voltage_source] = -1
-            A[:, -voltage_source, arr_idxs[1]] = -1
+            print(arr_idxs, voltage_source)
+            A[:, arr_idxs[1], -voltage_source] = A[:, arr_idxs[1], -voltage_source] - val
+            A[:, -voltage_source, arr_idxs[1]] = A[:, -voltage_source, arr_idxs[1]] - val
+            return None  # break out early
             
-        return None 
-
+        
     A[:, arr_idxs[0], arr_idxs[0]] = A[:, arr_idxs[0], arr_idxs[0]] + val
     if len(arr_idxs) > 1:
         A[:, arr_idxs[1], arr_idxs[1]] = A[:, arr_idxs[1], arr_idxs[1]] + val
         A[:, arr_idxs[0], arr_idxs[1]] = A[:, arr_idxs[0], arr_idxs[1]] - val
         A[:, arr_idxs[1], arr_idxs[0]] = A[:, arr_idxs[1], arr_idxs[0]] - val
-
+        

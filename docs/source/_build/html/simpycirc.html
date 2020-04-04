@@ -1,0 +1,252 @@
+
+
+<!DOCTYPE html>
+<!--[if IE 8]><html class="no-js lt-ie9" lang="en" > <![endif]-->
+<!--[if gt IE 8]><!--> <html class="no-js" lang="en" > <!--<![endif]-->
+<head>
+  <meta charset="utf-8">
+  
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <title>simpycirc package &mdash; simpycirc 0.0.1 documentation</title>
+  
+
+  
+  
+  
+  
+
+  
+  <script type="text/javascript" src="_static/js/modernizr.min.js"></script>
+  
+    
+      <script type="text/javascript" id="documentation_options" data-url_root="./" src="_static/documentation_options.js"></script>
+        <script type="text/javascript" src="_static/jquery.js"></script>
+        <script type="text/javascript" src="_static/underscore.js"></script>
+        <script type="text/javascript" src="_static/doctools.js"></script>
+        <script type="text/javascript" src="_static/language_data.js"></script>
+    
+    <script type="text/javascript" src="_static/js/theme.js"></script>
+
+    
+
+  
+  <link rel="stylesheet" href="_static/css/theme.css" type="text/css" />
+  <link rel="stylesheet" href="_static/pygments.css" type="text/css" />
+    <link rel="index" title="Index" href="genindex.html" />
+    <link rel="search" title="Search" href="search.html" /> 
+</head>
+
+<body class="wy-body-for-nav">
+
+   
+  <div class="wy-grid-for-nav">
+    
+    <nav data-toggle="wy-nav-shift" class="wy-nav-side">
+      <div class="wy-side-scroll">
+        <div class="wy-side-nav-search" >
+          
+
+          
+            <a href="index.html" class="icon icon-home"> simpycirc
+          
+
+          
+          </a>
+
+          
+            
+            
+              <div class="version">
+                2019
+              </div>
+            
+          
+
+          
+<div role="search">
+  <form id="rtd-search-form" class="wy-form" action="search.html" method="get">
+    <input type="text" name="q" placeholder="Search docs" />
+    <input type="hidden" name="check_keywords" value="yes" />
+    <input type="hidden" name="area" value="default" />
+  </form>
+</div>
+
+          
+        </div>
+
+        <div class="wy-menu wy-menu-vertical" data-spy="affix" role="navigation" aria-label="main navigation">
+          
+            
+            
+              
+            
+            
+              <ul>
+<li class="toctree-l1"><a class="reference internal" href="installation.html">Installation</a></li>
+<li class="toctree-l1"><a class="reference internal" href="installation.html#indices-and-tables">Indices and tables</a></li>
+<li class="toctree-l1"><a class="reference internal" href="circuits.html">Building Circuits</a></li>
+</ul>
+
+            
+          
+        </div>
+      </div>
+    </nav>
+
+    <section data-toggle="wy-nav-shift" class="wy-nav-content-wrap">
+
+      
+      <nav class="wy-nav-top" aria-label="top navigation">
+        
+          <i data-toggle="wy-nav-top" class="fa fa-bars"></i>
+          <a href="index.html">simpycirc</a>
+        
+      </nav>
+
+
+      <div class="wy-nav-content">
+        
+        <div class="rst-content">
+        
+          
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+<div role="navigation" aria-label="breadcrumbs navigation">
+
+  <ul class="wy-breadcrumbs">
+    
+      <li><a href="index.html">Docs</a> &raquo;</li>
+        
+      <li>simpycirc package</li>
+    
+    
+      <li class="wy-breadcrumbs-aside">
+        
+            
+            <a href="_sources/simpycirc.rst.txt" rel="nofollow"> View page source</a>
+          
+        
+      </li>
+    
+  </ul>
+
+  
+  <hr/>
+</div>
+          <div role="main" class="document" itemscope="itemscope" itemtype="http://schema.org/Article">
+           <div itemprop="articleBody">
+            
+  <div class="section" id="simpycirc-package">
+<h1>simpycirc package<a class="headerlink" href="#simpycirc-package" title="Permalink to this headline">¶</a></h1>
+<div class="section" id="submodules">
+<h2>Submodules<a class="headerlink" href="#submodules" title="Permalink to this headline">¶</a></h2>
+</div>
+<div class="section" id="module-simpycirc.circuit">
+<span id="simpycirc-circuit-module"></span><h2>simpycirc.circuit module<a class="headerlink" href="#module-simpycirc.circuit" title="Permalink to this headline">¶</a></h2>
+<dl class="function">
+<dt id="simpycirc.circuit.CPE">
+<code class="sig-prename descclassname">simpycirc.circuit.</code><code class="sig-name descname">CPE</code><span class="sig-paren">(</span><em class="sig-param">Rs</em>, <em class="sig-param">Cs</em>, <em class="sig-param">freq=None</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/simpycirc/circuit.html#CPE"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#simpycirc.circuit.CPE" title="Permalink to this definition">¶</a></dt>
+<dd><p>Simulates CPE behaviour through a series of R||C components.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><p><strong>freq</strong> (<em>array-like</em>) – The frequencies over which the circuit is simulated.</p>
+</dd>
+<dt class="field-even">Returns</dt>
+<dd class="field-even"><p>Complex impedances or the absolute impedances and phase for
+the CPE.</p>
+</dd>
+</dl>
+</dd></dl>
+
+<dl class="function">
+<dt id="simpycirc.circuit.create_nodelist">
+<code class="sig-prename descclassname">simpycirc.circuit.</code><code class="sig-name descname">create_nodelist</code><span class="sig-paren">(</span><em class="sig-param">circuit</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/simpycirc/circuit.html#create_nodelist"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#simpycirc.circuit.create_nodelist" title="Permalink to this definition">¶</a></dt>
+<dd><p>Identifies nodes in the circuit defined as a function</p>
+</dd></dl>
+
+<dl class="function">
+<dt id="simpycirc.circuit.find_component">
+<code class="sig-prename descclassname">simpycirc.circuit.</code><code class="sig-name descname">find_component</code><span class="sig-paren">(</span><em class="sig-param">node</em>, <em class="sig-param">side</em>, <em class="sig-param">subcircuit</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/simpycirc/circuit.html#find_component"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#simpycirc.circuit.find_component" title="Permalink to this definition">¶</a></dt>
+<dd></dd></dl>
+
+<dl class="function">
+<dt id="simpycirc.circuit.simulator">
+<code class="sig-prename descclassname">simpycirc.circuit.</code><code class="sig-name descname">simulator</code><span class="sig-paren">(</span><em class="sig-param">circuit=None</em>, <em class="sig-param">freq=1000.0</em>, <em class="sig-param">**kwargs</em><span class="sig-paren">)</span><a class="reference internal" href="_modules/simpycirc/circuit.html#simulator"><span class="viewcode-link">[source]</span></a><a class="headerlink" href="#simpycirc.circuit.simulator" title="Permalink to this definition">¶</a></dt>
+<dd><p>Generates function for simulating circuit.</p>
+<dl class="field-list simple">
+<dt class="field-odd">Parameters</dt>
+<dd class="field-odd"><ul class="simple">
+<li><p><strong>circuit</strong> (<em>, </em><em>optional</em>) – Function or spc.Netlist to create simulating</p></li>
+<li><p><strong>from. Defaults to None.</strong> (<em>function</em>) – </p></li>
+<li><p><strong>freq</strong> (<a class="reference external" href="https://docs.python.org/3/library/functions.html#float" title="(in Python v3.8)"><em>float</em></a><em>, </em><em>optional</em>) – Frequency/frequencies to simulate circuit over.</p></li>
+<li><p><strong>to 1000.0.</strong> (<em>Defaults</em>) – </p></li>
+</ul>
+</dd>
+<dt class="field-even">Raises</dt>
+<dd class="field-even"><p><a class="reference external" href="https://docs.python.org/3/library/exceptions.html#SyntaxError" title="(in Python v3.8)"><strong>SyntaxError</strong></a> – Raised if voltage source not specified for circuit.</p>
+</dd>
+<dt class="field-odd">Returns</dt>
+<dd class="field-odd"><p>function that takes circuit component values as position and keyword
+arguments and simulates voltage response of the circuit nodes.</p>
+</dd>
+</dl>
+</dd></dl>
+
+</div>
+</div>
+
+
+           </div>
+           
+          </div>
+          <footer>
+  
+
+  <hr/>
+
+  <div role="contentinfo">
+    <p>
+        &copy; Copyright 2019, Callum Lamont
+
+    </p>
+  </div>
+  Built with <a href="http://sphinx-doc.org/">Sphinx</a> using a <a href="https://github.com/rtfd/sphinx_rtd_theme">theme</a> provided by <a href="https://readthedocs.org">Read the Docs</a>. 
+
+</footer>
+
+        </div>
+      </div>
+
+    </section>
+
+  </div>
+  
+
+
+  <script type="text/javascript">
+      jQuery(function () {
+          SphinxRtdTheme.Navigation.enable(true);
+      });
+  </script>
+
+  
+  
+    
+   
+
+</body>
+</html>
