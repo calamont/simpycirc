@@ -1,7 +1,7 @@
-simpycirc
+circuitlib
 =====================================
 
-Simpycirc is a lightweight package for quickly and conveniently simulating linear electrical circuits.
+circuitlib is a lightweight package for quickly and conveniently simulating linear electrical circuits.
 
 Circuits can be invoked using SPICE style netlists or by simply decorating a circuit described in a function.
 

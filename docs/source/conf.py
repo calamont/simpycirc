@@ -21,7 +21,7 @@ sys.setrecursionlimit(1500)
 
 # -- Project information -----------------------------------------------------
 
-project = "simpycirc"
+project = "circuitlib"
 copyright = "2019, Callum Lamont"
 author = "Callum Lamont"
 
@@ -110,7 +110,7 @@ html_static_path = ["_static"]
 # -- Options for HTMLHelp output ---------------------------------------------
 
 # Output file base name for HTML help builder.
-htmlhelp_basename = "simpycircdoc"
+htmlhelp_basename = "circuitlib"
 
 
 # -- Options for LaTeX output ------------------------------------------------
@@ -134,7 +134,13 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, "simpycirc.tex", "simpycirc Documentation", "Callum Lamont", "manual")
+    (
+        master_doc,
+        "circuitlib.tex",
+        "circuitlib Documentation",
+        "Callum Lamont",
+        "manual",
+    )
 ]
 
 
@@ -142,7 +148,7 @@ latex_documents = [
 
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
-man_pages = [(master_doc, "simpycirc", "simpycirc Documentation", [author], 1)]
+man_pages = [(master_doc, "circuitlib", "circuitlib Documentation", [author], 1)]
 
 
 # -- Options for Texinfo output ----------------------------------------------
@@ -153,10 +159,10 @@ man_pages = [(master_doc, "simpycirc", "simpycirc Documentation", [author], 1)]
 texinfo_documents = [
     (
         master_doc,
-        "simpycirc",
-        "simpycirc Documentation",
+        "circuitlib",
+        "circuitlib Documentation",
         author,
-        "simpycirc",
+        "circuitlib",
         "One line description of project.",
         "Miscellaneous",
     )

@@ -4,19 +4,14 @@ with open("README.md", "r") as f:
     long_description = f.read()
 
 setuptools.setup(
-    name="simpycirc",
+    name="circuitlib",
     version="0.0.1",
     description="To easily simulate electrical circuits",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(exclude=["docs", "tests"]),
-    install_requires=[
-        "matplotlib>=3.0",
-        "scipy>=1.4.1",
-        "numpy>=1.15",
-        "pandas>=0.24.2",
-    ],
-    url="https://github.com/calamont/simpycirc",
+    install_requires=["matplotlib>=3.0", "scipy>=1.4.1", "numpy>=1.15",],
+    url="https://github.com/calamont/circuitlib",
     author="Callum Lamont",
     email="cal_lamont@hotmail.com",
     license="MIT",

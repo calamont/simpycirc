@@ -5,7 +5,7 @@ Installation
 
 Installation is as simple as::
 
-    pip install simpycirc
+    pip install circuitlib
 
 Requirements
 ############

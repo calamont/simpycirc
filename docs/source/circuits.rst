@@ -5,11 +5,11 @@ Building Circuits
 
 
 
-Circuits are defined in simpycirc as callable functions, making it easier to simulate the response of a given circuit for different component values. These circuits are generated using the :func:`simpycirc.circuit.simulate` function, which can be called in two manners: writing circuits as text and defining netlists.
+Circuits are defined in simpycirc as callable functions, making it easier to simulate the response of a given circuit for different component values. These circuits are generated using the :func:`circuitlib.circuit.simulate` function, which can be called in two manners: writing circuits as text and defining netlists.
 
 Circuit components
 -------------------------
-Currently, simpycirc only supports linear circuits using a voltage source, meaning circuits can only comprise of resistors, capacitors and inductors. Current sources are also not supported yet.
+Currently, circuitlib only supports linear circuits using a voltage source, meaning circuits can only comprise of resistors, capacitors and inductors. Current sources are also not supported yet.
 
 Each component in a circuit must be given a unique name. The first character of this name is used as an identifier for what type of component it represents
 
