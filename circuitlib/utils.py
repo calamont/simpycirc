@@ -17,26 +17,31 @@ def flatten(nested_list):
             tmp_list.extend(flatten(i))
     return tmp_list
 
-# TODO: Create class that inherits from MutableMapping instead of pd.DataFrame
-# TODO: Be able to set component unit as letter (e.g. 200 pF). Probably regex.
-class Netlist(abc.MutableMapping):
+def stamp(A, idxs, val, subtract=False):
 
-    def __init__(self):
-        pass
+    if subtract:
+        val = val * -1
 
-    def _create_entry(self, nodes, value):
-        """Returns dict with keys 'nodes' and 'value'"""
-        self._check_input(nodes, value)
-        # TODO: Include "source" as a key to the dict here
-        return dict(*zip(["nodes", "value"], [nodes, value]))
+    # Allow node indices to be compatible with the zero-indexed A array
+    arr_idxs = [idx_ - 1 for idx_ in idxs[::-1] if idx_ > 0]
+    A[:, arr_idxs[0], arr_idxs[0]] = A[:, arr_idxs[0], arr_idxs[0]] + val
+    if len(arr_idxs) > 1:
+        A[:, arr_idxs[1], arr_idxs[1]] = A[:, arr_idxs[1], arr_idxs[1]] + val
+        A[:, arr_idxs[0], arr_idxs[1]] = A[:, arr_idxs[0], arr_idxs[1]] - val
+        A[:, arr_idxs[1], arr_idxs[0]] = A[:, arr_idxs[1], arr_idxs[0]] - val
+
+def component_impedance(component, value, freq, dtype=complex):
+    if component[0].upper() == "R":
+        return np.full_like(freq, 1 / value, dtype=dtype)
+    elif component[:3].upper() == "CPE":
+        return 1 / CPE(value[0], value[1], freq)
+    elif component[0].upper() == "C":
+        return 1 / (1 / (2j * np.pi * freq * value))
+    elif component[0].upper() == "L":
+        return 1 / (2j * np.pi * freq * value)
+        
 
 
-    def __setattr__(self, key, value):
-        self.__dict__.update()
-
-    def _check_input(self, input):
-        # TODO: Add type checking for inputs
-        pass
 
 class Netlist(pd.DataFrame):
     """A tabular dataframe for defining a circuit's netlist"""
@@ -49,4 +54,7 @@ class Netlist(pd.DataFrame):
             self[key] = value
         else:
             raise ValueError("Expected [nodes], value")
+
+    def B(self):
+        return 'B'
 

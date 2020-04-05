@@ -4,7 +4,7 @@ import inspect
 import functools
 import numpy as np
 
-from .utils import flatten, Netlist
+from .utils import flatten, stamp, component_impedance
 from collections import defaultdict
 from itertools import chain
 
@@ -14,21 +14,35 @@ dtype = np.complex
 wj = 2j * np.pi
 
 
-# def node(V, node_label, measure="V", Z_ground=None):
-#     if measure == "Z":
-#         if Z_ground is None:
-#             raise AttributeError(
-#                 "To calulate impedance a value must be set for `Z_ground`."
-#             )
-#         data = _v2z(V, node, Z_ground)
-#     elif measure == "I":
-#         data = (V[:, node] / Z_ground).flatten()
-#     elif measure == "V":
-#         data = V[:, node].flatten()
-
-# TODO: Look into using 
 def simulator(circuit=None, freq=1000.0, **kwargs):
     """Generates function for simulating circuit.
+    
+    Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
+    equation that must be solved is
+    
+    .. math::
+    Ax = z
+
+    Where A describes the various impedances and currents flowing in 
+    and out of each node, x is a vector of the voltages on each node of the 
+    circuit, and z is a vector of the voltage and current source values. As the
+    impedance and source values are known, x can be solved for by taking the 
+    inverse of A
+
+    .. math::
+    x = A^{-1}\ z
+
+    A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m 
+    is the number of voltage sources. It is composed of four smaller matrices
+
+    .. math::
+    G B
+    C D
+
+
+    G is an n x n matrix that is composed of the inverse impedances connecting
+    each node. B is an n x m matrix of the connctions of the voltage sources. 
+    C = B.T and D is an m x m matrix of zeros.
 
     Args:
         circuit (, optional): Function or spc.Netlist to create simulating
@@ -51,46 +65,32 @@ def simulator(circuit=None, freq=1000.0, **kwargs):
         if callable(circuit) or (isinstance(circuit, str)):
             netlist, total_nodes, undef_args, def_args = _parse_circuit_func(circuit)
         else:
-            # If circuit is supplied as a netlist/dictionary
-            netlist, total_nodes, undef_args, def_args = _parse_circuit_dict(
-                circuit, **kwargs
-            )
-
-        length = len(set(total_nodes)) - 1
-        print(total_nodes)
-        A = np.zeros((freq.shape[0], length, length), dtype=dtype)
-        comp_vals = {}
-        for component, val in netlist.items():
-            if val["value"]:
-                value = val["value"]
-                if component[0] != "V":
-                    value = _impedance(component, value, freq)
-                comp_vals[component] = value
-                # print(val)
-                _stamp(A, val["nodes"], value, voltage_source=val["source"])
-        total_args = undef_args + def_args
+            netlist = circuit
+            
+        A = netlist.A_matrix()
+        z = np.zeros(netlist.n_nodes -1 + netlist.sources)[None, :]
+        for k, v in netlist.components.items():
+            if v["source"]:
+                z[:, -v["source"]] = v["value"]
 
         @functools.wraps(circuit)
         def wrapper(*args, **kwargs):
 
             return _solve_circuit(
                 A.copy(),
-                freq,
+                z,
                 netlist,
-                comp_vals,
-                length,
-                undef_args.copy(),
                 *args,
                 **kwargs,
             )
 
-        wrapper.__doc__ = (
-            "Automatically generated docstring. This function can now be used "
-            + "to simulate the voltages across the nodes between the frequencies "
-            + f"of {np.min(freq):.3f}-{np.max(freq):.3f}Hz.\n\nValue(s) for the "
-            + f"remaning keyword arguments {undef_args} need to be supplied to "
-            + "complete the circuit.\n"
-        )
+        # wrapper.__doc__ = (
+        #     "Automatically generated docstring. This function can now be used "
+        #     + "to simulate the voltages across the nodes between the frequencies "
+        #     + f"of {np.min(freq):.3f}-{np.max(freq):.3f}Hz.\n\nValue(s) for the "
+        #     + f"remaning keyword arguments {undef_args} need to be supplied to "
+        #     + "complete the circuit.\n"
+        # )
 
         return wrapper
 
@@ -115,6 +115,7 @@ def _parse_circuit_func(circuit):
         def_args = []
 
     if "V" not in flatten(nodes.values()):
+        # TODO: Perhaps raise warning instead
         raise SyntaxError("V not defined for circuit")
     else:
         total_nodes = nodes.keys()
@@ -125,49 +126,7 @@ def _parse_circuit_func(circuit):
 
 def _parse_circuit_dict(circuit, **kwargs):
     """Extract netlist from circuit dictionary/netlist"""
-    if isinstance(circuit, Netlist):
-        circuit = circuit.to_dict()
-    netlist = {}
-    total_nodes = []
-    voltage_source = 0
-    for key, val in circuit.items():
-        new_nodes = []
-        for node in val["nodes"]:
-            # if node > 0:
-            new_nodes.append(node)
-        total_nodes.extend(new_nodes)
-        netlist[key] = {"nodes": new_nodes, "value": circuit[key]["value"]}
-        netlist[key].setdefault("source", False)
-        if key[0] == "V":
-            voltage_source += 1
-            netlist[key]["source"] = voltage_source
-            total_nodes.append(key)
-    # netlist = circuit
-    print(netlist)
-
-    undef_args = sorted([key for key, val in circuit.items() if not val["value"]])
-
-    if voltage_source == 0:
-        raise SyntaxError("V not defined for circuit")
-
-    if kwargs:
-        for key, val in kwargs.items():
-            if isinstance(val, tuple):
-                netlist[key] = {
-                    "nodes": [val[0][0], val[0][1]],
-                    "value": val[1],
-                }
-            else:
-                netlist[key]["value"] = val
-        def_args = list(set(netlist.keys()).union(set(kwargs.keys())))
-    else:
-        def_args = []
-    #   try:
-    #       netlist.pop("V")
-    #   except ValueError:
-
-    return netlist, total_nodes, undef_args, def_args
-
+    pass
 
 def _netlist_converter(node_list, argspec):
     """Converts a node list into a netlist"""
@@ -181,53 +140,55 @@ def _netlist_converter(node_list, argspec):
                 d[key]["value"] = argspec[key]
             except KeyError:
                 d[key]["value"] = None
-
     return d
 
 
-def _solve_circuit(A, freq, netlist, comp_vals, length, undef_args, *args, **kwargs):
+def _solve_circuit(A, z, netlist, *args, **kwargs):
     """Solves circuit using modified nodal analysis"""
+    undef_args = netlist.undefined.copy()
+    def_args = netlist.defined.copy()
     passed_args = []
-
+    
+    # Step through arguments and stamp values to the `A` matrix
     for arg in args:
-
         component = undef_args.pop(0)
-        Z = _impedance(component, arg, freq)
-        _stamp(A, netlist[component]["nodes"], Z)
+        if component[0] == "V":
+            idx = netlist.components[component]["source"]
+            z[:, -idx] = arg
+        else:
+            Z = component_impedance(component, arg, netlist.freq)
+            stamp(A, netlist.components[component]["nodes"], Z)
         passed_args.append(component)
 
+    # Step through kwargs and stamp values to the `A` matrix. 
     for component, val in kwargs.items():
-
         if component in passed_args:
             raise Exception(f"{component} defined twice")
-        else:
-            passed_args.append(component)
+        passed_args.append(component)
+        
+        # Voltage sources are independent of each other so we don't need to
+        # subtract previously stamped values, we can simply overwrite them.
+        if component[0] == "V":
+            idx = netlist.components[component]["source"]
+            z[:, -idx] = val
+            if component in undef_args:
+                undef_args.remove()
+            continue
 
+        # If the component has been previously defined then subtract previously
+        # stamped value.
         if component not in undef_args:
-            old_val = comp_vals[component]
-            _stamp(A, netlist[component]["nodes"], old_val, subtract=True)
+            old_val = netlist["stamp_values"][component]
+            stamp(A, netlist.components[component]["nodes"], old_val, subtract=True)
         else:
             undef_args.remove(component)
+        Z = component_impedance(component, val, netlist.freq)
+        stamp(A, netlist.components[component]["nodes"], Z)
 
-        Z = _impedance(component, val, freq)
-        _stamp(A, netlist[component]["nodes"], Z)
-
-    # TODO: Do we need to remove "V" anymore?
-    try:
-        undef_args.remove("V")
-    except ValueError:
-        pass
     if len(undef_args) > 0:
         raise Exception(f"{undef_args[0]} undefined")
 
-    b = np.zeros(length)[None, :]
-    for k, v in netlist.items():
-        if v["source"]:
-            b[:, -v["source"]] = v["value"]
-    print(A[0,-2:,:])
-    print(A[0,:,-1])
-    print(b)
-    return np.linalg.solve(A, b)
+    return np.linalg.solve(A, z)
 
 
 def create_nodelist(circuit):
@@ -322,8 +283,8 @@ def C(cap, freq):
     return 1 / (2j * np.pi * freq * cap)
 
 
-def _impedance(component, value, freq):
-    """Calculates 1/impedance from transfer function of component
+def impedance(component, value, freq):
+    """Calculates the reciprocal of the impedance from transfer function of the component
 
     Args:
         component (str): Component name in the simpycirc nomenclature
@@ -343,11 +304,35 @@ def _impedance(component, value, freq):
         return 1 / (wj * freq * value)
 
 
-def _stamp(A, idxs, val, subtract=False, voltage_source=False):
+def _stamp(G, idxs, val, subtract=False, voltage_source=False):
     """Stamp used to update the MNA array of the circuit.
 
+    Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
+    equation that must be solved is
+    
+    Ax = z
+
+    Where A describes the various impedances and currents flowing in 
+    and out of each node, x is a vector of the voltages on each node of the 
+    circuit, and z is a vector of the voltage and current source values. As the
+    impedance and source values are known, x can be solved for by taking the 
+    inverse of A
+
+    x = A^{-1}\ z
+
+    A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m 
+    is the number of voltage sources. It is composed of four smaller matrices
+
+    G B
+    C D
+
+    G is an n x n matrix that is composed of the inverse impedances connecting
+    each node. B is an n x m matrix of the connctions of the voltage sources. 
+    C = B.T and D is an m x m matrix of zeros.
+
+
     Args:
-        A (np.ndarray): The MNA representation of the circuit.
+        G (np.ndarray): The MNA representation of the circuit.
         idxs (list): The row/column indices representing the components being
         added to the MNA matrix
         val (float): The value of the component to be simulated in the standard SI
@@ -358,23 +343,12 @@ def _stamp(A, idxs, val, subtract=False, voltage_source=False):
     if subtract:
         val = val * -1
 
-    # Allow node indices to be compatible with the zero-indexed A array
+    # Allow node indices to be compatible with the zero-indexed G array
     arr_idxs = [idx_ - 1 for idx_ in idxs if idx_ > 0]
 
-    if voltage_source:
-        # Reverse order of indices to add -1 to negative terminal
-        arr_idxs = arr_idxs[::-1]
-        A[:, arr_idxs[0], -voltage_source] = 1
-        A[:, -voltage_source, arr_idxs[0]] = 1
-        if len(arr_idxs) > 1:
-            A[:, arr_idxs[1], -voltage_source] = -1
-            A[:, -voltage_source, arr_idxs[1]] = -1
-            
-        return None 
-
-    A[:, arr_idxs[0], arr_idxs[0]] = A[:, arr_idxs[0], arr_idxs[0]] + val
+    G[:, arr_idxs[0], arr_idxs[0]] = G[:, arr_idxs[0], arr_idxs[0]] + val
     if len(arr_idxs) > 1:
-        A[:, arr_idxs[1], arr_idxs[1]] = A[:, arr_idxs[1], arr_idxs[1]] + val
-        A[:, arr_idxs[0], arr_idxs[1]] = A[:, arr_idxs[0], arr_idxs[1]] - val
-        A[:, arr_idxs[1], arr_idxs[0]] = A[:, arr_idxs[1], arr_idxs[0]] - val
+        G[:, arr_idxs[1], arr_idxs[1]] = G[:, arr_idxs[1], arr_idxs[1]] + val
+        G[:, arr_idxs[0], arr_idxs[1]] = G[:, arr_idxs[0], arr_idxs[1]] - val
+        G[:, arr_idxs[1], arr_idxs[0]] = G[:, arr_idxs[1], arr_idxs[0]] - val
 
