@@ -1,38 +1,325 @@
-import re
-import ast
-import inspect
+import copy
 import functools
 import numpy as np
-
-from .utils import flatten, stamp, component_impedance
-from collections import defaultdict
-from itertools import chain
-
-
-default_freq = 1000.0
-dtype = np.complex
-wj = 2j * np.pi
+import matplotlib.pyplot as plt
+from .figures import bode, nyquist
+from .build import _solve_circuit, _component_impedance, _stamp
+from .parse import _parse_func
+from scipy.optimize import minimize
 
 
-def simulator(circuit=None, freq=1000.0, **kwargs):
+class NodalAnalysis:
+    def __init__(self, netlist, freq):
+        """Takes in netlist and builds node matrices for MNA."""
+        if isinstance(freq, (int, float)):
+            freq = [float(freq)]
+        self.freq = np.array(freq)  # TODO: Use property to prevent changes to freq?
+        self.netlist = netlist
+        self.stamp_values = dict()
+        self.update(**self.netlist.items())
+
+    def update(self, *args, **kwargs):
+        """Updates component values."""
+        for key, val in kwargs.items():
+            if key not in self.netlist.components:
+                raise KeyError(f"{key} not defined for the original circuit.")
+            self.netlist.components[key]["value"] = val
+            if val is not None:
+                self.stamp_values[key] = _component_impedance(key, val, self.freq)
+
+    def copy(self):
+        """Returns a deep copy of the netlist."""
+        return copy.deepcopy(self)
+
+    @property
+    def A_matrix(self):
+        if len(self.undefined) > 0:
+            raise TypeError(f"{self} missing argument values for {self.undefined}")
+        GB = np.concatenate([self.G_matrix, self.B_matrix], axis=2)
+        CD = np.concatenate([self.C_matrix, self.D_matrix], axis=2)
+        return np.concatenate([GB, CD], axis=1)
+
+    @property
+    def G_matrix(self):
+        G = np.zeros(
+            (len(self.freq), self.n_nodes - 1, self.n_nodes - 1), dtype=complex
+        )
+        for key, val in self.netlist.components.items():
+            if not isinstance(val, dict):
+                continue
+            elif val.get("source", 0) != 0:
+                continue
+            if val["value"] is not None:
+                Z = _component_impedance(key, val["value"], self.freq)
+                _stamp(G, val["nodes"], Z)
+        return G
+
+    @property
+    def B_matrix(self):
+        B = np.zeros((len(self.freq), self.n_nodes - 1, self.netlist._n_sources))
+        for key, val in self.netlist.components.items():
+            if not isinstance(val, dict):
+                continue
+            elif val.get("source", 0) == 0:
+                continue
+            idx = reversed([i - 1 for i in val["nodes"] if i > 0])
+            mat_val = 1
+            for i in idx:
+                B[:, i, val["source"] - 1] = mat_val
+                mat_val *= -1
+        return B
+
+    @property
+    def C_matrix(self):
+        return np.moveaxis(self.B_matrix.T, -1, 0)
+
+    @property
+    def D_matrix(self):
+        return np.zeros(
+            (len(self.freq), self.netlist._n_sources, self.netlist._n_sources)
+        )
+
+    @property
+    def z_matrix(self):
+        z = np.zeros(self.n_nodes - 1 + self.netlist._n_sources)[None, :]
+        for key, val in self.netlist.components.items():
+            if val["source"]:
+                z[:, -val["source"]] = val["value"]
+        return z
+
+    @property
+    def nodes(self):
+        nodes = []
+        for key, val in self.netlist.components.items():
+            if not isinstance(val, dict):
+                continue
+            nodes.extend(val.get("nodes", []))
+        return set(nodes)
+
+    @property
+    def n_nodes(self):
+        return len(self.nodes)
+
+    @property
+    def undefined(self):
+        return sorted(
+            [
+                key
+                for key, val in self.netlist.components.items()
+                if val.get("value", None) is None
+            ]
+        )
+
+    @property
+    def defined(self):
+        return sorted(
+            [
+                key
+                for key, val in self.netlist.components.items()
+                if val.get("value", None) is not None
+            ]
+        )
+
+
+class FrequencyAnalysis:
+    """Object to interface with circuit."""
+
+    def __init__(self, circuit):
+
+        # self.simulate = self._modify_circuit(freq, circuit)
+        self.circuit = circuit
+        self.netlist = self.circuit.__closure__[1].cell_contents.copy()
+        self.freq = self.netlist.freq
+
+    def _modify_circuit(self, circuit, freq):
+        """Create simulator circuit and update V attribute when called"""
+
+        circuit = populate(circuit, freq=freq)
+
+        def mod_circuit(*args, **kwargs):
+            self.V = circuit(*args, **kwargs)
+            self.default_vals = dict(circuit.__closure__[4].cell_contents)
+            return self.V
+
+        mod_circuit.__doc__ = circuit.__doc__
+
+        return mod_circuit
+
+    def multimeter(self, pos_node, neg_node=0, mode="V", **kwargs):
+        V = self.circuit(**kwargs)
+        if mode == "V":
+            if not neg_node:
+                return V[:, pos_node - 1]
+            return V[:, pos_node - 1] - V[:, neg_node - 1]
+        # If calculating current or impedances then we must find the impedances
+        # between the circuit nodes, given by the A matrix
+        tmp_netlist = self.netlist.copy()
+        tmp_netlist.update(**kwargs)
+        G = tmp_netlist.G_matrix
+        if not neg_node:
+            Z = 1 / np.sum(G[:, pos_node - 1, :], axis=-1)
+            if mode == "Z":
+                return Z
+            elif mode == "I":
+                return V[:, pos_node - 1] / Z
+        Z = -1 / G[:, pos_node - 1, neg_node - 1]
+        if mode == "Z":
+            return Z
+        elif mode == "I":
+            return (V[:, pos_node - 1] - V[:, neg_node - 1]) / Z
+
+    def bode(
+        self,
+        pos_node,
+        neg_node=0,
+        mode="V",
+        figsize=(5.31, 5),
+        ax=None,
+        mpl_kwargs={},
+        **kwargs,
+    ):
+        data = self.multimeter(pos_node, neg_node, mode, **kwargs)
+        Z, phase = np.abs(data), np.angle(data, deg=True)
+
+        if ax is None:
+            fig, ax = plt.subplots(2, 1, sharex=True, figsize=figsize)
+        ax[1].set_xlim([np.min(self.freq), np.max(self.freq)])
+        y_lim = [
+            [np.min(Z) * 0.5, np.max(Z) * 2],
+            [np.min([0, *phase]) * 1.2, np.max([0, *phase]) * 1.2 + 5],
+        ]
+        ax[0].set_ylim(y_lim[0])
+        ax[1].set_ylim(y_lim[1])
+
+        ax[0].set_ylabel(f"{mode}", fontname="Roboto")
+        ax[1].set_ylabel("Phase (°)", fontname="Roboto")
+        ax[1].set_xlabel("Frequency (Hz)", fontname="Roboto")
+        ax[0].loglog(self.freq, Z, linewidth=1.5, color="k", **mpl_kwargs)
+        ax[1].semilogx(self.freq, phase, linewidth=1.5, color="k", **mpl_kwargs)
+
+        return ax
+
+    def nyquist(self, node_label, measure="V", Z_ground=None, ax=None, **mpl_kwargs):
+        if self.V is None:
+            raise AttributeError(
+                "No value for `Circuit.V`. Circuit must be called"
+                + "at least once before plotting results."
+            )
+        return nyquist(
+            V=self.V,
+            node=node_label,
+            freq=self.freq,
+            measure=measure,
+            Z_ground=Z_ground,
+            ax=ax,
+            **mpl_kwargs,
+        )
+
+    def fit(
+        self, data, node_label, measure, Z_ground, return_results=False, **scipy_kwargs
+    ):
+
+        components = [
+            key for key, val in self.default_vals.items() if val["value"] is None
+        ]
+        init_guess = []
+        # Provide reasonable guess for component value
+        for key in sorted(components):
+            if key[0] == "R":
+                init_guess.append(5)
+            elif key[0] == "C":
+                init_guess.append(-10)
+            elif key[0] == "L":
+                init_guess.append(-3)
+
+        results = minimize(
+            self._cost,
+            init_guess,
+            args=(data, node_label, measure, Z_ground),
+            **scipy_kwargs,
+        )
+
+        self.fit_vals = {c: v for c, v in zip(sorted(components), 10 ** results.x)}
+
+        if return_results:
+            return results
+
+    def _cost(self, params, data, node_label, measure, Z_ground):
+        sim = np.abs(
+            self.node(
+                *10 ** params, node_label=node_label, measure=measure, Z_ground=Z_ground
+            )
+        )
+        return np.square(np.subtract(np.log10(data), np.log10(sim))).mean()
+        # sim = self.node(
+        #     *10 ** params, node_label=node_label, measure=measure, Z_ground=Z_ground
+        # )
+        # return (
+        #     np.square(np.subtract((data.real), (sim.real))).mean()
+        #     + np.square(np.subtract((data.imag), (sim.imag))).mean()
+        # )
+
+        return np.log10(np.square(np.abs((np.subtract(data, sim))))).mean()
+
+    def fit_components(data, **kwargs):
+
+        fit = minimize(cost, [10], args=(circuit, data), **kwargs)
+
+        return 10 ** fit.x
+
+
+def populate2(freq=1000.0, circuit=None, **kwargs):
+
+    freq = np.array(freq).reshape(-1)
+
+    def decorator(circuit=None, **kwargs):
+
+        if callable(circuit):
+            netlist = _parse_func(circuit)
+        else:
+            netlist = circuit
+        mna = NodalAnalysis(netlist, freq)
+
+        @functools.wraps(circuit)
+        def wrapper(**kwargs):
+
+            if len(kwargs) > 0:
+                mna_ = mna.copy()
+                mna_.update(**kwargs)
+            return np.linalg.solve(mna_.A_matrix, mna_.z_matrix)
+
+        # wrapper.__doc__ = (
+        #     "Automatically generated docstring. This function can now be used "
+        #     + "to simulate the voltages across the nodes between the frequencies "
+        #     + f"of {np.min(freq):.3f}-{np.max(freq):.3f}Hz.\n\nValue(s) for the "
+        #     + f"remaning keyword arguments {netlist.undefined} need to be supplied to "
+        #     + "complete the circuit.\n"
+        # )
+
+        return wrapper
+
+    return decorator
+
+
+def populate(circuit=None, freq=1000.0, **kwargs):
     """Generates function for simulating circuit.
-    
+
     Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
     equation that must be solved is
-    
+
     .. math::
     Ax = z
 
-    Where A describes the various impedances and currents flowing in 
-    and out of each node, x is a vector of the voltages on each node of the 
+    Where A describes the various impedances and currents flowing in
+    and out of each node, x is a vector of the voltages on each node of the
     circuit, and z is a vector of the voltage and current source values. As the
-    impedance and source values are known, x can be solved for by taking the 
+    impedance and source values are known, x can be solved for by taking the
     inverse of A
 
     .. math::
     x = A^{-1}\ z
 
-    A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m 
+    A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m
     is the number of voltage sources. It is composed of four smaller matrices
 
     .. math::
@@ -41,7 +328,7 @@ def simulator(circuit=None, freq=1000.0, **kwargs):
 
 
     G is an n x n matrix that is composed of the inverse impedances connecting
-    each node. B is an n x m matrix of the connctions of the voltage sources. 
+    each node. B is an n x m matrix of the connctions of the voltage sources.
     C = B.T and D is an m x m matrix of zeros.
 
     Args:
@@ -57,298 +344,39 @@ def simulator(circuit=None, freq=1000.0, **kwargs):
         function that takes circuit component values as position and keyword
         arguments and simulates voltage response of the circuit nodes.
     """
-
     freq = np.array(freq).reshape(-1)
 
     if circuit is not None:
         # If circuit is supplied as a function or string
-        if callable(circuit) or (isinstance(circuit, str)):
-            netlist, total_nodes, undef_args, def_args = _parse_circuit_func(circuit)
+        if callable(circuit):
+            netlist = _parse_func(circuit)
         else:
             netlist = circuit
-            
-        A = netlist.A_matrix()
-        z = np.zeros(netlist.n_nodes -1 + netlist.sources)[None, :]
-        for k, v in netlist.components.items():
-            if v["source"]:
-                z[:, -v["source"]] = v["value"]
+
+        mna = NodalAnalysis(netlist, freq)
+        # z = np.zeros(mna.n_nodes - 1 + mna.sources)[None, :]
+        # for k, v in mna.netlist.components.items():
+        #     if v["source"]:
+        #         z[:, -v["source"]] = v["value"]
 
         @functools.wraps(circuit)
-        def wrapper(*args, **kwargs):
+        def wrapper(stamp_matrix=False, *args, **kwargs):
 
-            return _solve_circuit(
-                A.copy(),
-                z,
-                netlist,
-                *args,
-                **kwargs,
-            )
+            if len(kwargs) > 0:
+                mna_ = mna.copy()
+                mna_.update(**kwargs)
+            return np.linalg.solve(mna_.A_matrix, mna_.z_matrix)
+            # return _solve_circuit(A.copy(), z, netlist, stamp_matrix, *args, **kwargs,)
 
         # wrapper.__doc__ = (
         #     "Automatically generated docstring. This function can now be used "
         #     + "to simulate the voltages across the nodes between the frequencies "
         #     + f"of {np.min(freq):.3f}-{np.max(freq):.3f}Hz.\n\nValue(s) for the "
-        #     + f"remaning keyword arguments {undef_args} need to be supplied to "
+        #     + f"remaning keyword arguments {netlist.undefined} need to be supplied to "
         #     + "complete the circuit.\n"
         # )
 
         return wrapper
 
     else:
-        return functools.partial(simulator, freq=freq, **kwargs)
-
-
-def _parse_circuit_func(circuit):
-    """Extract netlist from circuit function"""
-
-    nodes = create_nodelist(circuit)
-
-    try:
-        args = inspect.getfullargspec(circuit)
-        arg_dict = dict(zip(args.args, args.defaults))
-        undef_args = sorted(list(circuit.__code__.co_names))
-        def_args = args.args
-    except TypeError:  # if circuit supplied as a string
-        arg_dict = {}
-        # Get unique components defined in `nodes`
-        undef_args = np.unique(list(chain(*nodes.values()))).tolist()
-        def_args = []
-
-    if "V" not in flatten(nodes.values()):
-        # TODO: Perhaps raise warning instead
-        raise SyntaxError("V not defined for circuit")
-    else:
-        total_nodes = nodes.keys()
-    netlist = _netlist_converter(nodes, arg_dict)
-
-    return netlist, total_nodes, undef_args, def_args
-
-
-def _parse_circuit_dict(circuit, **kwargs):
-    """Extract netlist from circuit dictionary/netlist"""
-    pass
-
-def _netlist_converter(node_list, argspec):
-    """Converts a node list into a netlist"""
-    d = defaultdict(dict)
-    for node, keys in node_list.items():
-        for key in keys:
-            if "V" in key.upper():
-                continue
-            d[key].setdefault("nodes", []).append(node)
-            try:
-                d[key]["value"] = argspec[key]
-            except KeyError:
-                d[key]["value"] = None
-    return d
-
-
-def _solve_circuit(A, z, netlist, *args, **kwargs):
-    """Solves circuit using modified nodal analysis"""
-    undef_args = netlist.undefined.copy()
-    def_args = netlist.defined.copy()
-    passed_args = []
-    
-    # Step through arguments and stamp values to the `A` matrix
-    for arg in args:
-        component = undef_args.pop(0)
-        if component[0] == "V":
-            idx = netlist.components[component]["source"]
-            z[:, -idx] = arg
-        else:
-            Z = component_impedance(component, arg, netlist.freq)
-            stamp(A, netlist.components[component]["nodes"], Z)
-        passed_args.append(component)
-
-    # Step through kwargs and stamp values to the `A` matrix. 
-    for component, val in kwargs.items():
-        if component in passed_args:
-            raise Exception(f"{component} defined twice")
-        passed_args.append(component)
-        
-        # Voltage sources are independent of each other so we don't need to
-        # subtract previously stamped values, we can simply overwrite them.
-        if component[0] == "V":
-            idx = netlist.components[component]["source"]
-            z[:, -idx] = val
-            if component in undef_args:
-                undef_args.remove()
-            continue
-
-        # If the component has been previously defined then subtract previously
-        # stamped value.
-        if component not in undef_args:
-            old_val = netlist["stamp_values"][component]
-            stamp(A, netlist.components[component]["nodes"], old_val, subtract=True)
-        else:
-            undef_args.remove(component)
-        Z = component_impedance(component, val, netlist.freq)
-        stamp(A, netlist.components[component]["nodes"], Z)
-
-    if len(undef_args) > 0:
-        raise Exception(f"{undef_args[0]} undefined")
-
-    return np.linalg.solve(A, z)
-
-
-def create_nodelist(circuit):
-    """Identifies nodes in the circuit defined as a function"""
-    if callable(circuit):
-        func_string = inspect.getsource(circuit)
-    elif isinstance(circuit, str):
-        func_string = re.sub(r"\n\s*", "\n", circuit)
-    tree = ast.parse(func_string)
-
-    netlist = {}
-    subcircuits = {}
-
-    def recurse_tree(node):
-        nodes = ast.iter_child_nodes(node)
-
-        for i, node in enumerate(nodes):
-            node_type = type(node).__name__
-            if node_type == "Assign":
-                subcircuits[node.targets[0].id] = node.value
-            if node_type == "BinOp":
-                if type(node.op).__name__ == "Add":
-
-                    netlist[len(netlist) + 1] = [
-                        find_component(node.left, "left", subcircuits),
-                        find_component(node.right, "right", subcircuits),
-                    ]
-            recurse_tree(node)
-
-    recurse_tree(tree)
-
-    keys, vals = zip(*netlist.items())
-    netlist = {key - 1: flatten(val) for key, val in zip(keys[::-1], vals)}
-
-    return netlist
-
-
-def find_component(node, side, subcircuit):
-    try:
-        node = subcircuit[node.id]
-    except AttributeError:
-        pass
-    except KeyError:
-        return node.id  # node is Name type and not a subcomponent
-
-    node_type = type(node).__name__
-
-    if node_type == "BinOp":
-        if type(node.op).__name__ == "Add":
-            if side == "left":
-                return find_component(node.right, side, subcircuit)
-            elif side == "right":
-                return find_component(node.left, side, subcircuit)
-
-        elif (type(node.op).__name__ == "BitOr") or (type(node.op).__name__ == "Mult"):
-            return [
-                find_component(node.left, side, subcircuit),
-                find_component(node.right, side, subcircuit),
-            ]
-
-
-def CPE(Rs, Cs, freq=None):
-    """
-    Simulates CPE behaviour through a series of R||C components.
-
-    Args:
-        freq (array-like):
-            The frequencies over which the circuit is simulated.
-    Returns:
-        Complex impedances or the absolute impedances and phase for
-        the CPE.
-    """
-    if freq is None:
-        freq = default_freq
-
-    r_vals = np.array(Rs, dtype=np.complex)
-    c_vals = np.array(Cs)
-    cpe = np.zeros_like(freq, dtype=np.complex)
-
-    for r, c in zip(r_vals, c_vals):
-        cpe = cpe + _parallel_Z(r, C(c, freq))
-
-    return cpe
-
-
-def _parallel_Z(Z1, Z2):
-    """Combined impedance of parallel impedances"""
-    return Z1 * Z2 / (Z1 + Z2)
-
-
-def C(cap, freq):
-    return 1 / (2j * np.pi * freq * cap)
-
-
-def impedance(component, value, freq):
-    """Calculates the reciprocal of the impedance from transfer function of the component
-
-    Args:
-        component (str): Component name in the simpycirc nomenclature
-        value (float): Value of component to be simulated in the standard SI
-        unit (i.e. farads for capacitor, ohms for resistor)
-
-    Returns:
-        np.ndarray: impedance of component over frequency range
-    """
-    if component[0].upper() == "R":
-        return np.full_like(freq, 1 / value, dtype=dtype)
-    elif component[:3].upper() == "CPE":
-        return 1 / CPE(value[0], value[1], freq)
-    elif component[0].upper() == "C":
-        return 1 / (1 / (wj * freq * value))
-    elif component[0].upper() == "L":
-        return 1 / (wj * freq * value)
-
-
-def _stamp(G, idxs, val, subtract=False, voltage_source=False):
-    """Stamp used to update the MNA array of the circuit.
-
-    Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
-    equation that must be solved is
-    
-    Ax = z
-
-    Where A describes the various impedances and currents flowing in 
-    and out of each node, x is a vector of the voltages on each node of the 
-    circuit, and z is a vector of the voltage and current source values. As the
-    impedance and source values are known, x can be solved for by taking the 
-    inverse of A
-
-    x = A^{-1}\ z
-
-    A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m 
-    is the number of voltage sources. It is composed of four smaller matrices
-
-    G B
-    C D
-
-    G is an n x n matrix that is composed of the inverse impedances connecting
-    each node. B is an n x m matrix of the connctions of the voltage sources. 
-    C = B.T and D is an m x m matrix of zeros.
-
-
-    Args:
-        G (np.ndarray): The MNA representation of the circuit.
-        idxs (list): The row/column indices representing the components being
-        added to the MNA matrix
-        val (float): The value of the component to be simulated in the standard SI
-        unit (i.e. farads for capacitor, ohms for resistor)
-        subtract (bool, optional): To be used to remove a component from the MNA matrix. Defaults to False.
-    """
-
-    if subtract:
-        val = val * -1
-
-    # Allow node indices to be compatible with the zero-indexed G array
-    arr_idxs = [idx_ - 1 for idx_ in idxs if idx_ > 0]
-
-    G[:, arr_idxs[0], arr_idxs[0]] = G[:, arr_idxs[0], arr_idxs[0]] + val
-    if len(arr_idxs) > 1:
-        G[:, arr_idxs[1], arr_idxs[1]] = G[:, arr_idxs[1], arr_idxs[1]] + val
-        G[:, arr_idxs[0], arr_idxs[1]] = G[:, arr_idxs[0], arr_idxs[1]] - val
-        G[:, arr_idxs[1], arr_idxs[0]] = G[:, arr_idxs[1], arr_idxs[0]] - val
-
+        return functools.partial(populate, freq=freq, **kwargs)
