@@ -80,7 +80,6 @@ def plot(
             figsize = (5.31, 4.5)
 
             # y_lim = [[data.imag[idx_min] * 1.2, data.imag[idx_max] * 1.2]]
-
     if ax is None:
         fig, ax = _create_graph(
             x_lim, y_lim, measure, plot_type=plot_type, figsize=figsize, **mpl_kwargs
@@ -163,7 +162,7 @@ def _display_data(Z, ax, plot_type, freq=None):
 def _v2z(V, node, Z_ground):
     """Converts voltage to impedance"""
 
-    I = V[:, node] / Z_ground
+    I = V[:, node-1] / Z_ground
     Z_sim = (1 / I).flatten()
 
     return Z_sim

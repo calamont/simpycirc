@@ -51,3 +51,6 @@ settings.json
 
 # Virtualenv
 .python-version
+
+# Random
+*.DS_Store
