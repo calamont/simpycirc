@@ -107,8 +107,8 @@ class FrequencyAnalysis:
         if ax is None:
             fig, ax = plt.subplots(sharex=True, figsize=figsize)
 
-        # ax.set_xlim(x_lim)
-        # ax.set_ylim(y_lim)
+        ax.set_xlim(x_lim)
+        ax.set_ylim(y_lim)
         ax.set_xlabel(f"Real {y_label[mode].lower()}", fontname="Roboto")
         ax.set_ylabel(f"Imag {y_label[mode].lower()}", fontname="Roboto")
 
@@ -121,36 +121,4 @@ class FrequencyAnalysis:
             )
 
         ax.plot(data.real, data.imag, linewidth=linewidth, color=color, **mpl_kwargs)
-
-        # plt.tight_layout()
-
         return ax
-
-        # ax[1].set_xlim([np.min(self.freq), np.max(self.freq)])
-        # y_lim = [
-        #     [np.min(Z) * 0.5, np.max(Z) * 2],
-        #     [np.min([0, *phase]) * 1.2, np.max([0, *phase]) * 1.2 + 5],
-        # ]
-        # ax[0].set_ylim(y_lim[0])
-        # ax[1].set_ylim(y_lim[1])
-
-        # ax[0].set_ylabel(y_label[mode], fontname="Roboto")
-        # ax[1].set_ylabel("Phase (°)", fontname="Roboto")
-        # ax[1].set_xlabel("Frequency (Hz)", fontname="Roboto")
-        # ax[0].loglog(self.freq, Z, linewidth=linewidth, color=color, **mpl_kwargs)
-        # ax[1].semilogx(self.freq, phase, linewidth=linewidth, color=color, **mpl_kwargs)
-
-        # if self.V is None:
-        #     raise AttributeError(
-        #         "No value for `Circuit.V`. Circuit must be called"
-        #         + "at least once before plotting results."
-        #     )
-        # return nyquist(
-        #     V=self.V,
-        #     node=node_label,
-        #     freq=self.freq,
-        #     measure=measure,
-        #     Z_ground=Z_ground,
-        #     ax=ax,
-        #     **mpl_kwargs,
-        # )
