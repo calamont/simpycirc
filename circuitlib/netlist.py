@@ -1,6 +1,5 @@
 import copy
-import numpy as np
-from .build import _stamp, _component_impedance
+import pprint
 
 
 class Netlist:
@@ -21,6 +20,12 @@ class Netlist:
             "value": value,
             "source": source,
         }
+
+    def __repr__(self):
+        return pprint.pformat(self.components, width=40)
+
+    def __len__(self):
+        return len(self.components)
 
     def items(self):
         return {key: val["value"] for key, val in self.components.items()}

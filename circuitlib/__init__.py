@@ -1,6 +1,6 @@
-from .circuit import FrequencyAnalysis, populate
+from .circuit import NodalAnalysis
+from .analysis import FrequencyAnalysis
 from .netlist import Netlist
-from .fitting import fit_components
 
 from .figures import init_mpl
 
