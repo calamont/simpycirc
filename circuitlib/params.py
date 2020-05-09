@@ -1,3 +1,22 @@
+import matplotlib as mpl
+import matplotlib.pyplot as plt
+
+
+def init_mpl(
+    plot_type="line", dpi=200, figsize=(5.31, 3.99), grid=False, **custom_params
+):
+    """Updates matplotlib styling"""
+    graph_params = line_params if plot_type == "line" else scatter_params
+    mpl.rcParams.update(
+        {
+            **{"figure.dpi": dpi, "figure.figsize": figsize, "axes.grid": grid},
+            **figure_params,
+            **graph_params,
+            **custom_params,
+        }
+    )
+
+
 line_params = {
     # 'alpha': 1.0,
     # 'color': 'k',  # Should get updated according to

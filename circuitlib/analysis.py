@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+import cProfile as profile
 
 y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}
 
@@ -11,6 +12,12 @@ class FrequencyAnalysis:
         self.circuit = circuit
         self.netlist = circuit.netlist.copy()
         self.freq = circuit.freq
+
+    def _time_bode(self):
+        profile.runctx("self.bode(pos_node=2)", globals(), locals())
+
+    def _time_nyquist(self):
+        profile.runctx("self.nyquist(pos_node=2", globals(), locals())
 
     def multimeter(self, pos_node, neg_node=0, mode="V", **kwargs):
         V = self.circuit(**kwargs)
@@ -81,7 +88,7 @@ class FrequencyAnalysis:
         mode="V",
         linewidth=1.5,
         color="k",
-        figsize=(5.31, 5),
+        figsize=(5.31, 3.25),
         ax=None,
         **kwargs,
     ):
@@ -98,11 +105,9 @@ class FrequencyAnalysis:
             idx_min = np.argmin(np.abs((data.imag)))
             idx_max = np.argmax(np.abs((data.imag)))
             y_lim = [data.imag[idx_min] * 1.2, data.imag[idx_max] * 1.2]
-            figsize = (5.31, 3.25)
         else:
             y_max = np.max(np.abs((data.imag)))
             y_lim = [-y_max * 1.2, y_max * 1.2]
-            figsize = (5.31, 4.5)
 
         if ax is None:
             fig, ax = plt.subplots(sharex=True, figsize=figsize)
