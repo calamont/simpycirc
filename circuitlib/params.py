@@ -1,3 +1,5 @@
+"""Defines the circuitlib plotting style."""
+
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 
