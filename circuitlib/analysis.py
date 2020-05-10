@@ -1,25 +1,53 @@
+"""Classes for the analysis of node voltages/currents."""
+
 import numpy as np
 import matplotlib.pyplot as plt
-import cProfile as profile
 
 y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}
 
 
 class FrequencyAnalysis:
-    """Object to interface with circuit."""
+    """Convenient analysis of circuit over its defined frequencies.
+
+    Attributes:
+        circuit (`circuitlib.NodalAnalysis`): A defined circuit that has been
+            parsed into a `NodalAnalysis` object.
+    """
 
     def __init__(self, circuit):
+        """Constructor of `FrequencyAnalysis` class.
+
+        Args:
+            circuit (`circuitlib.NodalAnalysis`): A defined circuit that has been
+            parsed into a `NodalAnalysis` object.
+        """
         self.circuit = circuit
-        self.netlist = circuit.netlist.copy()
-        self.freq = circuit.freq
-
-    def _time_bode(self):
-        profile.runctx("self.bode(pos_node=2)", globals(), locals())
-
-    def _time_nyquist(self):
-        profile.runctx("self.nyquist(pos_node=2", globals(), locals())
 
     def multimeter(self, pos_node, neg_node=0, mode="V", **kwargs):
+        """Measures voltage, current or impedance between circuit nodes.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs.
+
+        ```
+        fra = FrequencyAnalysis(my_circuit)
+        fra.multimeter(pos_node=2, R1=10e3, R2=20e3)
+        ```
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+
+        Returns:
+            numpy.ndarray: The measurement between `pos_node` and `neg_node` over the frequencies defined for the circuit.
+        """
         V = self.circuit(**kwargs)
         if mode == "V":
             if not neg_node:
@@ -47,12 +75,42 @@ class FrequencyAnalysis:
         pos_node,
         neg_node=0,
         mode="V",
-        linewidth=1.5,
-        color="k",
         figsize=(5.31, 5),
+        dpi=100,
         ax=None,
         **kwargs,
     ):
+        """Displays Bode plot of the circuit.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs. Similarly any kwargs
+        for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+            figsize (tuple, optional): Width and height of the figure in inches.
+                Defaults to (5.31, 5).
+            dpi (int, optional): The figure resolution. Defaults to 100.
+            ax (`matplotlib.pyplot.Axes`, optional): Object or array of
+                `matplotlib.pyplot.Axes` objects to draw Bode plot on.
+                Defaults to None.
+            **kwargs:
+                Circuit component values (i.e. R1=100) or additional arguments
+                passed to `matplotlib.pyplot.plot` call.
+
+        Returns:
+            ax: Object or array of `matplotlib.pyplot.Axes` objects.
+        """
+        # Split kwargs into `circuitlib` components and
+        # `matplotlib.pyplot.plot` kwargs
         clb_kwargs = {}
         mpl_kwargs = kwargs.copy()
         for k, v in kwargs.items():
@@ -63,22 +121,21 @@ class FrequencyAnalysis:
         Z, phase = np.abs(data), np.angle(data, deg=True)
 
         if ax is None:
-            fig, ax = plt.subplots(2, 1, sharex=True, figsize=figsize)
+            fig, ax = plt.subplots(2, 1, sharex=True, figsize=figsize, dpi=dpi)
 
-        ax[1].set_xlim([np.min(self.freq), np.max(self.freq)])
+        # TODO: Choose best limits if multiple plots are drawn on the same fig.
+        ax[1].set_xlim([np.min(self.circuit.freq), np.max(self.circuit.freq)])
         y_lim = [
             [np.min(Z) * 0.5, np.max(Z) * 2],
             [np.min([0, *phase]) * 1.2, np.max([0, *phase]) * 1.2 + 5],
         ]
         ax[0].set_ylim(y_lim[0])
         ax[1].set_ylim(y_lim[1])
-
         ax[0].set_ylabel(y_label[mode], fontname="Roboto")
         ax[1].set_ylabel("Phase (°)", fontname="Roboto")
         ax[1].set_xlabel("Frequency (Hz)", fontname="Roboto")
-        ax[0].loglog(self.freq, Z, linewidth=linewidth, color=color, **mpl_kwargs)
-        ax[1].semilogx(self.freq, phase, linewidth=linewidth, color=color, **mpl_kwargs)
-
+        ax[0].loglog(self.circuit.freq, Z, **mpl_kwargs)
+        ax[1].semilogx(self.circuit.freq, phase, **mpl_kwargs)
         return ax
 
     def nyquist(
@@ -86,12 +143,42 @@ class FrequencyAnalysis:
         pos_node,
         neg_node=0,
         mode="V",
-        linewidth=1.5,
-        color="k",
         figsize=(5.31, 3.25),
+        dpi=100,
         ax=None,
         **kwargs,
     ):
+        """Displays Nyquist plot of the circuit.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs. Similarly any kwargs
+        for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+            figsize (tuple, optional): Width and height of the figure in inches.
+                Defaults to (5.31, 5).
+            dpi (int, optional): The figure resolution. Defaults to 100.
+            ax (`matplotlib.pyplot.Axes`, optional): Object or array of
+                `matplotlib.pyplot.Axes` objects to draw Bode plot on.
+                Defaults to None.
+            **kwargs:
+                Circuit component values (i.e. R1=100) or additional arguments
+                passed to `matplotlib.pyplot.plot` call.
+
+        Returns:
+            ax: Object or array of `matplotlib.pyplot.Axes` objects.
+        """
+        # Split kwargs into `circuitlib` components and
+        # `matplotlib.pyplot.plot` kwargs
         clb_kwargs = {}
         mpl_kwargs = kwargs.copy()
         for k, v in kwargs.items():
@@ -110,7 +197,7 @@ class FrequencyAnalysis:
             y_lim = [-y_max * 1.2, y_max * 1.2]
 
         if ax is None:
-            fig, ax = plt.subplots(sharex=True, figsize=figsize)
+            fig, ax = plt.subplots(sharex=True, figsize=figsize, dpi=dpi)
 
         ax.set_xlim(x_lim)
         ax.set_ylim(y_lim)
@@ -124,6 +211,5 @@ class FrequencyAnalysis:
             ax.xaxis.set_label_coords(
                 0.95, 0.55,
             )
-
         ax.plot(data.real, data.imag, linewidth=linewidth, color=color, **mpl_kwargs)
         return ax
