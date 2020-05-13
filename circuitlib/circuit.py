@@ -9,19 +9,52 @@ from .parse import _parse_func
 class NodalAnalysis:
     """Solves for the response of a defined circuit by modified nodal analysis.
 
+    Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
+    equation that must be solved is
+
+    .. math::
+
+        Ax = z
+
+
+    Where :math:`A` describes the various impedances and currents flowing in
+    and out of each node, :math:`x` is a vector of the voltages on each node of the
+    circuit, and :math:`z` is a vector of the voltage and current source values.
+    :math:`A` is an :math:`(n+m) \\times (n+m)` matrix, where :math:`n` is the
+    number of circuit nodes and :math:`m` is the number of voltage sources.
+    It is composed of four smaller matrices.
+
+    .. math::
+
+        A = \\begin{bmatrix}G & B\\\C & D\\end{bmatrix}
+
+
+    :math:`G` is an :math:`n x n` matrix that is composed of the inverse impedances connecting
+    each node. :math:`B` is an :math:`n x m` matrix of the connctions of the voltage sources.
+    :math:`C = B.T` and :math:`D` is an :math:`m x m` matrix of zeros.
+
+    As the impedance and source values are known, the node voltages given by :math:`x`
+    can be solved for by taking the inverse of :math:`A`.
+
+    .. math::
+
+        x = A^{-1}\ z
+
+
     Attributes:
         circuit (`circuitlib.NodalAnalysis`): A defined circuit that has been
             parsed into a `NodalAnalysis` object.
     """
-    def __init__(self, freq, netlist=None):
+
+    def __init__(self, freq, circuit=None):
         """Takes in netlist and builds node matrices for MNA."""
         if isinstance(freq, (int, float)):
             freq = [float(freq)]
         self.freq = np.array(freq)  # TODO: Use property to prevent changes to freq?
         self.stamp_values = dict()
         self._initialised = False
-        if netlist is not None:
-            self.__call__(netlist)
+        if circuit is not None:
+            self.__call__(circuit)
 
     def __call__(self, *args, **kwargs):
         """Solves the constructed matrices for the modified nodal analysis.
@@ -34,10 +67,12 @@ class NodalAnalysis:
         if not self._initialised:
             if callable(args[0]):
                 self.netlist = _parse_func(args[0])
-            elif isinstance(args[0], netlist.Netlist)
+            elif isinstance(args[0], netlist.Netlist):
                 self.netlist = args[0]
             else:
-                raise TypeError("The passed circuit must be a function or a `circuitlib.netlist.Netlist` object.")
+                raise TypeError(
+                    "The passed circuit must be a function or a `circuitlib.netlist.Netlist` object."
+                )
 
             def solve_matrix(**kwargs):
                 if len(kwargs) > 0:
@@ -53,7 +88,6 @@ class NodalAnalysis:
             return self
 
         return self.__call__(**kwargs)
-
 
     def _add_func_signature(self, func):
         """Adds informative signature to `solve_matrix` substituted to `__call__`"""
@@ -133,7 +167,7 @@ class NodalAnalysis:
             if val is not None:
                 self.stamp_values[key] = self._component_impedance(key, val)
 
-    def self._stamp(self, G, idxs, val, subtract=False):
+    def _stamp(self, G, idxs, val, subtract=False):
         """Stamps reciprocal of component's impedance on the G matrix for the
         modified nodal analysis."""
         if subtract:

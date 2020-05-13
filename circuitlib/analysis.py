@@ -30,10 +30,11 @@ class FrequencyAnalysis:
         (`neg_node`) acts as the reference. The values of circuit components
         can be updated by passing these in as kwargs.
 
-        ```
-        fra = FrequencyAnalysis(my_circuit)
-        fra.multimeter(pos_node=2, R1=10e3, R2=20e3)
-        ```
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.multimeter(pos_node=2, R1=10e3, R2=20e3)
+
 
         Args:
             pos_node (int): The circuit node of interest, equivalent to the
@@ -86,6 +87,12 @@ class FrequencyAnalysis:
         (`neg_node`) acts as the reference. The values of circuit components
         can be updated by passing these in as kwargs. Similarly any kwargs
         for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.bode(pos_node=2, R1=10e3, linestyle="--")
+
 
         Args:
             pos_node (int): The circuit node of interest, equivalent to the
@@ -154,6 +161,12 @@ class FrequencyAnalysis:
         (`neg_node`) acts as the reference. The values of circuit components
         can be updated by passing these in as kwargs. Similarly any kwargs
         for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.nyquist(pos_node=2, R1=10e3, linestyle="--")
+
 
         Args:
             pos_node (int): The circuit node of interest, equivalent to the
