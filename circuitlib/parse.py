@@ -1,3 +1,5 @@
+"""Methods to parse and convert code object of a function into a netlist."""
+
 import re
 import ast
 import inspect

@@ -3,9 +3,6 @@
     :align: center
 
 circuitlib is a lightweight package for quickly and conveniently simulating linear electrical circuits. It is written exclusively in Python and only requires in SciPy, Numpy and matplotlib.
-circuitlib is a lightweight package for quickly and conveniently simulating linear electrical circuits.
-circuitlib is a lightweight package for quickly and conveniently simulating linear electrical circuits.
-circuitlib is a lightweight package for quickly and conveniently simulating linear electrical circuits.
 
 Circuits can be invoked using SPICE style netlists or by simply decorating a circuit described in a function.
 
@@ -57,7 +54,7 @@ Check out the user guide to get a flavour of the main features of circuitlib!
 
    installation
    circuits
-
+   api
 
 
 Indices and tables
