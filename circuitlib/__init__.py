@@ -1,4 +1,3 @@
-# flake8: noqa
 from .circuit import NodalAnalysis
 from .analysis import FrequencyAnalysis
 from .netlist import Netlist
