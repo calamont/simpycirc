@@ -1,7 +1,6 @@
 """Defines the circuitlib plotting style."""
 
 import matplotlib as mpl
-import matplotlib.pyplot as plt
 
 from cycler import cycler
 
@@ -40,7 +39,7 @@ figure_params = {
     "axes.labelsize": 10.0,
     "axes.labelweight": 1.75,
     "axes.prop_cycle": cycler(
-        color=["#111111", "#333333", "#555555", "#777777",],
+        color=["#111111", "#333333", "#555555", "#777777"],
         linestyle=["-", "-.", "--", ":"],
     ),
     "axes.linewidth": axes_linewidth,
