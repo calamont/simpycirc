@@ -1,8 +1,6 @@
 """Defines the circuitlib plotting style."""
 
 import matplotlib as mpl
-
-
 from cycler import cycler
 
 
