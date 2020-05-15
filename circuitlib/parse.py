@@ -11,7 +11,10 @@ def _parse_func(circuit):
 
     nodes = _create_nodelist(circuit)
     args = inspect.getfullargspec(circuit)
-    arg_dict = dict(zip(args.args, args.defaults))
+    try:
+        arg_dict = dict(zip(args.args, args.defaults))
+    except TypeError:
+        arg_dict = {}
     if "V" not in _flatten(nodes.values()):
         # TODO: Perhaps raise warning instead
         pass
