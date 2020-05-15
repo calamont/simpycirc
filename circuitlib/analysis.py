@@ -1,6 +1,7 @@
 """Classes for the analysis of node voltages/currents."""
 
 import numpy as np
+
 import matplotlib.pyplot as plt
 
 y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}

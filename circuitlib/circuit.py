@@ -1,8 +1,10 @@
 """Code for constructing and solving the circuit's nodal analysis matrices."""
 
 import copy
+
 import types
 import numpy as np
+import netlist
 from .parse import _parse_func
 
 
