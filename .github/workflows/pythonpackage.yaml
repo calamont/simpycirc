@@ -29,4 +29,4 @@ jobs:
         flake8 . --count --exit-zero --max-complexity=10 --statistics --config="setup.cfg"
     - name: Test with pytest
       run: |
-        pytest --"./.."
+        pytest --"/home/runner/work/circuitlib"
