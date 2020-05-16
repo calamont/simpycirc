@@ -25,7 +25,8 @@ ax = fra.bode()
 ax = fra.bode(C=400e-12, ax=ax)  # modify component values on the fly
 ```
 
-<img src="docs/images/highpass_filter.png" width="700">
+<br/>
+<img src="docs/images/highpass_filter.png" width="600">
 
 # Installation
 
