@@ -17,7 +17,7 @@ import circuitlib as clb
 freq = np.logspace(-2,5,100)
 
 @clb.NodalAnalysis(freq)
-def hp_filter(V1, C=100e-12, R=1000):
+def hp_filter(V=1, C=100e-12, R=1000):
     return V + C + R
     
 fra = clb.FrequencyAnalysis(hp_filter)
