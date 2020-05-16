@@ -5,9 +5,9 @@
 
 # Getting started
 
-Circuitlib allows quick and easy analysis of electrical circuits.  It is written exclusively in<img align="right" src="https://img.shields.io/github/last-commit/calamont/circuitlib"><br/>
-Python and only requires NumPy and Matplotlib. Circuits can be constructed<img align="right" src="https://img.shields.io/github/license/calamont/circuitlib"><br/>
-in decorated functions or with SPICE style netlists. Look how easy it is...
+Circuitlib allows quick and easy analysis of electrical circuits.  It is written exclusively<img align="right" src="https://img.shields.io/github/last-commit/calamont/circuitlib"><br/>
+in Python and only requires NumPy and Matplotlib. Circuits can be constructed in<img align="right" src="https://img.shields.io/github/license/calamont/circuitlib"><br/>
+decorated functions or with SPICE style netlists. Look how easy it is...
 
 ```python
 
@@ -25,7 +25,7 @@ ax = fra.bode()
 ax = fra.bode(C=400e-12, ax=ax)  # modify component values on the fly
 ```
 
-<img src="docs/images/highpass_filter.png" width="400">
+<img src="docs/images/highpass_filter.png" width="700">
 
 # Installation
 
