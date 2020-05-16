@@ -5,9 +5,9 @@
 
 # Getting started
 
-Circuitlib is simple package for simulating electrical circuits. Circuits can be constructed <img align="right" src="https://img.shields.io/github/last-commit/calamont/circuitlib"><br/>
-in functions or using traditional SPICE style netlists. Circuitlib leverages the power<img align="right" src="https://img.shields.io/github/license/calamont/circuitlib"><br/>
-of NumPy and Matplotlib for circuit analysis. And that's it. Look how easy it is...
+Circuitlib allows quick and easy analysis of electrical circuits.  It is written exclusively <img align="right" src="https://img.shields.io/github/last-commit/calamont/circuitlib"><br/>
+in Python and only requires NumPy and Matplotlib. Circuits can be constructed<img align="right" src="https://img.shields.io/github/license/calamont/circuitlib"><br/>
+in decorated functions or with SPICE style netlists. Look how easy it is...
 
 ```python
 
@@ -17,10 +17,25 @@ import circuitlib as clb
 freq = np.logspace(-2,5,100)
 
 @clb.NodalAnalysis(freq)
-def hp_filter(V=1, C=100e-12, R=1000):
+def highpass_filter(V=1, C=100e-12, R=1000):
     return V + C + R
-    
-fra = clb.FrequencyAnalysis(hp_filter)
+
+fra = clb.FrequencyAnalysis(highpass_filter)
 ax = fra.bode()
-ax = fra.bode(C=400e-12, ax=ax)
+ax = fra.bode(C=400e-12, ax=ax)  # modify component values on the fly
+```
+
+<img src="docs/images/highpass_filter.png" width="400")>
+
+# Installation
+
+Circuitlib can be installed with pip:
+```
+$ pip install circuitlib
+```
+
+Or grab the source code from GitHub:
+```
+$ git clone git://github.com/circuitlib/circuitlib.git
+$ python setup.py installation
 ```
