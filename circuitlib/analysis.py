@@ -47,7 +47,8 @@ class FrequencyAnalysis:
                 Defaults to "V".
 
         Returns:
-            numpy.ndarray: The measurement between `pos_node` and `neg_node` over the frequencies defined for the circuit.
+            numpy.ndarray: The measurement between `pos_node` and `neg_node`
+                over the frequencies defined for the circuit.
         """
         V = self.circuit(**kwargs)
         if mode == "V":
@@ -224,5 +225,5 @@ class FrequencyAnalysis:
             ax.xaxis.set_label_coords(
                 0.95, 0.55,
             )
-        ax.plot(data.real, data.imag, linewidth=linewidth, color=color, **mpl_kwargs)
+        ax.plot(data.real, data.imag, **mpl_kwargs)
         return ax

@@ -1,13 +1,8 @@
 """Methods to parse and convert code object of a function into a netlist."""
 
-import re
 import ast
 import inspect
-import functools
-import numpy as np
-
 from collections import defaultdict
-from itertools import chain
 from .netlist import Netlist
 
 
@@ -16,15 +11,14 @@ def _parse_func(circuit):
 
     nodes = _create_nodelist(circuit)
     args = inspect.getfullargspec(circuit)
-    arg_dict = dict(zip(args.args, args.defaults))
-    undef_args = sorted(list(circuit.__code__.co_names))
-    def_args = args.args
+    try:
+        arg_dict = dict(zip(args.args, args.defaults))
+    except TypeError:
+        arg_dict = {}
     if "V" not in _flatten(nodes.values()):
         # TODO: Perhaps raise warning instead
         pass
         # raise SyntaxError("V not defined for circuit")
-    else:
-        total_nodes = nodes.keys()
     return _netlist_converter(nodes, arg_dict)
 
 

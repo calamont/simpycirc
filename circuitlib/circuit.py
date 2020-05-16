@@ -1,8 +1,10 @@
 """Code for constructing and solving the circuit's nodal analysis matrices."""
 
+import sys
 import copy
 import types
 import numpy as np
+from .netlist import Netlist
 from .parse import _parse_func
 
 
@@ -67,7 +69,7 @@ class NodalAnalysis:
         if not self._initialised:
             if callable(args[0]):
                 self.netlist = _parse_func(args[0])
-            elif isinstance(args[0], netlist.Netlist):
+            elif isinstance(args[0], Netlist):
                 self.netlist = args[0]
             else:
                 raise TypeError(
@@ -101,12 +103,14 @@ class NodalAnalysis:
             func.__code__.co_code,
             (),
             (),
-            tuple(self.components + ["kwargs"]),
+            tuple(self.components + ["kwargs", "kwargs"]),
             func.__code__.co_filename,
             func.__code__.co_name,
             func.__code__.co_firstlineno,
             func.__code__.co_lnotab,
         ]
+        if sys.version_info >= (3, 8):
+            func_args.insert(func.__code__.co_posonlyargcount, 1)
         func_code = types.CodeType(*func_args)
         new_func = types.FunctionType(func_code, globals())
         func.__wrapped__ = new_func
@@ -224,7 +228,7 @@ class NodalAnalysis:
                 continue
             if val["value"] is not None:
                 Z = self._component_impedance(key, val["value"])
-                self._stamp(self.G, val["nodes"], Z)
+                self._stamp(G, val["nodes"], Z)
         return G
 
     @property
