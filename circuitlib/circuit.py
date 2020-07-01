@@ -4,8 +4,349 @@ import sys
 import copy
 import types
 import numpy as np
+
+# import stamps as stamps
+
+from .stamps import Stamps
 from .netlist import Netlist
 from .parse import _parse_func
+
+
+class ModifiedNodalAnalysis:
+    """Constructs MNA matrices to solve."""
+
+    def __init__(self, circuit=None):
+        """Takes in netlist and builds node matrices for MNA."""
+        self._initialised = False
+        if circuit is not None:
+            if callable(circuit):
+                self.netlist = _parse_func(circuit)
+            elif isinstance(circuit, Netlist):
+                self.netlist = circuit
+            else:
+                raise TypeError(
+                    "The passed circuit must be a function or a `circuitlib.netlist.Netlist` object."
+                )
+
+            self.A1, self.A2, self.s = self._stamp_matrices(self.netlist)
+
+            # def solve_matrix(**kwargs):
+            #     if len(kwargs) > 0:
+            #         mna_ = self.copy()
+            #         mna_.update(**kwargs)
+            #     else:
+            #         mna_ = self
+            #     return np.linalg.solve(mna_.A_matrix, mna_.z_matrix)
+
+            # solve_matrix = self._add_func_signature(solve_matrix)
+            # self.__call__ = solve_matrix
+
+        def __call__(self, *args, **kwargs):
+            pass
+
+    def _stamp_matrices(self, netlist):
+        mat_size = len(netlist.group1_components + netlist.group2_components)
+        A1 = np.zeros((mat_size, mat_size))
+        A2 = np.zeros((mat_size, mat_size))
+        s = np.zeros(mat_size)
+
+        stamp_funcs = Stamps()
+        for key, val in netlist.components.items():
+            if val["value"] is not None:
+                print(val)
+                stamp = getattr(stamp_funcs, val["type"])
+                A1, A2, s = stamp(A1, A2, s, **val)
+        return A1, A2, s
+
+    #     def initialise(self, **kwargs):
+    #         """Updates component values."""
+    #         for key, val in kwargs.items():
+    #             if key not in self.netlist.components:
+    #                 raise KeyError(f"{key} not defined for the original circuit.")
+
+    #             if val is not None:
+    #                 self.stamp_values[key] = self._component_impedance(key, val)
+
+    def update(self, **kwargs):
+        """Updates component values."""
+        stamp_funcs = Stamps()
+        # A1, A2, s = self.A1.copy(), self.A2.copy(), self.s.copy()
+        for key, val in kwargs.items():
+            if key not in self.netlist.components:
+                raise KeyError(f"{key} not defined for the original circuit.")
+
+            comp = self.netlist.components[key]
+            if val is not None:
+                comp["value"] = val
+                stamp = getattr(stamp_funcs, comp["type"])
+                self.A1, self.A2, self.s = stamp(self.A1, self.A2, self.s, **{**comp})
+        # return A1, A2, s
+
+    def copy(self):
+        """Deep copy of object. Needed for `__call__` if **kwargs supplied."""
+        return copy.deepcopy(self)
+
+    @property
+    def nodes(self):
+        """The nodes in the defined circuit."""
+        nodes = []
+        for key, val in self.netlist.components.items():
+            if not isinstance(val, dict):
+                continue
+            nodes.extend(val.get("nodes", []))
+        return set(nodes)
+
+    @property
+    def n_nodes(self):
+        """The number of nodes in the defined circuit."""
+        return len(self.nodes)
+
+    @property
+    def undefined(self):
+        """The circuit components without a defined value."""
+        return sorted(
+            [
+                key
+                for key, val in self.netlist.components.items()
+                if val.get("value", None) is None
+            ]
+        )
+
+    @property
+    def defined(self):
+        """The circuit components with a defined value."""
+        return sorted(
+            [
+                key
+                for key, val in self.netlist.components.items()
+                if val.get("value", None) is not None
+            ]
+        )
+
+    @property
+    def components(self):
+        """The circuit components."""
+        return self.defined + self.undefined
+
+
+class AC(ModifiedNodalAnalysis):
+    """AC analysis of circuit."""
+
+    def __init__(self, circuit, freq=None):
+        super().__init__(circuit=circuit)
+        if freq is not None:
+            if isinstance(freq, (int, float)):
+                freq = [float(freq)]
+            self.freq = np.array(freq)
+
+        def solve_matrix(freq, **kwargs):
+            if len(kwargs) > 0:
+                mna_ = self.copy()
+                mna_.update(**kwargs)
+            else:
+                mna_ = self
+
+            if len(mna_.undefined) > 0:
+                # Create readable string of components without defined values
+                missing_vars = mna_.undefined[0]
+                if len(mna_.undefined) == 2:
+                    missing_vars += " and " + mna.undefined[-1]
+                elif len(mna_.undefined) > 2:
+                    missing_vars += (
+                        ", "
+                        + ", ".join(mna_.undefined[1:-1])
+                        + " and "
+                        + mna_.undefined[-1]
+                    )
+                raise TypeError(f"{self} missing argument values for {missing_vars}")
+
+            return np.linalg.solve(
+                mna_.A1[None, :, :] + mna_.A2[None, :, :] * freq[:, None, None],
+                mna_.s[None, :],
+            )
+
+        self._solve_matrix = self._add_func_signature(solve_matrix)
+        self.__call__ = self._solve_matrix
+
+    def __call__(self, *args, **kwargs):
+        return self._solve_matrix(*args, **kwargs)
+
+    def _add_func_signature(self, func):
+        """Adds informative signature to `solve_matrix` substituted to `__call__`"""
+
+        func_args = [
+            0,
+            len(self.netlist) + 1,
+            func.__code__.co_nlocals,
+            func.__code__.co_stacksize,
+            func.__code__.co_flags,
+            func.__code__.co_code,
+            (),
+            (),
+            tuple(["freq"] + self.components + ["kwargs", "kwargs"]),
+            func.__code__.co_filename,
+            func.__code__.co_name,
+            func.__code__.co_firstlineno,
+            func.__code__.co_lnotab,
+        ]
+        if sys.version_info >= (3, 8):
+            func_args.insert(func.__code__.co_posonlyargcount, 1)
+        func_code = types.CodeType(*func_args)
+        new_func = types.FunctionType(func_code, globals())
+        func.__wrapped__ = new_func
+        func.__doc__ = """Generates function for simulating circuit.
+
+            Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
+            equation that must be solved is
+
+            .. math::
+            Ax = z
+
+            Where A describes the various impedances and currents flowing in
+            and out of each node, x is a vector of the voltages on each node of the
+            circuit, and z is a vector of the voltage and current source values. As the
+            impedance and source values are known, x can be solved for by taking the
+            inverse of A
+
+            .. math::
+            x = A^{-1}\ z
+
+            A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m
+            is the number of voltage sources. It is composed of four smaller matrices
+
+            .. math::
+            G B
+            C D
+
+
+            G is an n x n matrix that is composed of the inverse impedances connecting
+            each node. B is an n x m matrix of the connctions of the voltage sources.
+            C = B.T and D is an m x m matrix of zeros.
+
+            Args:
+                circuit (, optional): Function or spc.Netlist to create simulating
+                function from. Defaults to None.
+                freq (float, optional): Frequency/frequencies to simulate circuit over.
+                Defaults to 1000.0.
+
+            Raises:
+                SyntaxError: Raised if voltage source not specified for circuit.
+
+            Returns:
+                function that takes circuit component values as position and keyword
+                arguments and simulates voltage response of the circuit nodes.
+        """
+        return func
+
+
+class Transient(ModifiedNodalAnalysis):
+    """Transient analysis of circuit."""
+
+    def __init__(self, circuit, freq=None):
+        super().__init__(circuit=circuit)
+        if freq is not None:
+            if isinstance(freq, (int, float)):
+                freq = [float(freq)]
+            self.freq = np.array(freq)
+
+        def solve_matrix(freq, **kwargs):
+            if len(kwargs) > 0:
+                mna_ = self.copy()
+                mna_.update(**kwargs)
+            else:
+                mna_ = self
+
+            if len(mna_.undefined) > 0:
+                # Create readable string of components without defined values
+                missing_vars = mna_.undefined[0]
+                if len(mna_.undefined) == 2:
+                    missing_vars += " and " + mna.undefined[-1]
+                elif len(mna_.undefined) > 2:
+                    missing_vars += (
+                        ", "
+                        + ", ".join(mna_.undefined[1:-1])
+                        + " and "
+                        + mna_.undefined[-1]
+                    )
+                raise TypeError(f"{self} missing argument values for {missing_vars}")
+
+            return np.linalg.solve(
+                mna_.A1[None, :, :] + mna_.A2[None, :, :] * freq[:, None, None],
+                mna_.s[None, :],
+            )
+
+        self._solve_matrix = self._add_func_signature(solve_matrix)
+        self.__call__ = self._solve_matrix
+
+    def __call__(self, *args, **kwargs):
+        return self._solve_matrix(*args, **kwargs)
+
+    def _add_func_signature(self, func):
+        """Adds informative signature to `solve_matrix` substituted to `__call__`"""
+
+        func_args = [
+            0,
+            len(self.netlist) + 1,
+            func.__code__.co_nlocals,
+            func.__code__.co_stacksize,
+            func.__code__.co_flags,
+            func.__code__.co_code,
+            (),
+            (),
+            tuple(["freq"] + self.components + ["kwargs", "kwargs"]),
+            func.__code__.co_filename,
+            func.__code__.co_name,
+            func.__code__.co_firstlineno,
+            func.__code__.co_lnotab,
+        ]
+        if sys.version_info >= (3, 8):
+            func_args.insert(func.__code__.co_posonlyargcount, 1)
+        func_code = types.CodeType(*func_args)
+        new_func = types.FunctionType(func_code, globals())
+        func.__wrapped__ = new_func
+        func.__doc__ = """Generates function for simulating circuit.
+
+            Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
+            equation that must be solved is
+
+            .. math::
+            Ax = z
+
+            Where A describes the various impedances and currents flowing in
+            and out of each node, x is a vector of the voltages on each node of the
+            circuit, and z is a vector of the voltage and current source values. As the
+            impedance and source values are known, x can be solved for by taking the
+            inverse of A
+
+            .. math::
+            x = A^{-1}\ z
+
+            A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m
+            is the number of voltage sources. It is composed of four smaller matrices
+
+            .. math::
+            G B
+            C D
+
+
+            G is an n x n matrix that is composed of the inverse impedances connecting
+            each node. B is an n x m matrix of the connctions of the voltage sources.
+            C = B.T and D is an m x m matrix of zeros.
+
+            Args:
+                circuit (, optional): Function or spc.Netlist to create simulating
+                function from. Defaults to None.
+                freq (float, optional): Frequency/frequencies to simulate circuit over.
+                Defaults to 1000.0.
+
+            Raises:
+                SyntaxError: Raised if voltage source not specified for circuit.
+
+            Returns:
+                function that takes circuit component values as position and keyword
+                arguments and simulates voltage response of the circuit nodes.
+        """
+        return func
 
 
 class NodalAnalysis:
