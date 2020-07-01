@@ -2,32 +2,27 @@
     :width: 400
     :align: center
 
-circuitlib is a lightweight package for quickly and conveniently simulating linear electrical circuits. It is written exclusively in Python and only requires in SciPy, Numpy and matplotlib.
-
-Circuits can be invoked using SPICE style netlists or by simply decorating a circuit described in a function.
+Circuitlib is a for quickly simulating linear electrical circuits. It is written exclusively in Python and only requires NumPy and Matplotlib. Circuits can be invoked using SPICE style netlists or by simply decorating a circuit described in a function. Look how easy it is...
 
 .. code:: python
 
     import numpy as np
-    from circuitlib import Circuit, Netlist, populate
+    import circuitlib as clb
 
     freq = np.logspace(-2,5,100)
 
-    @populate(freq)
-    def hp_filter(V1=1, R_load=1e12):
-        return V1 + C1 + (R1 | R_load)
+    @clb.NodalAnalysis(freq)
+    def highpass_filter(V=1, C=100e-12, R=1000):
+        return V + C + R
 
-    lp_filter = Netlist(freq)
-    lp_filter.V1 = (0, 1), 1
-    lp_filter.R1 = (1, 2), 1e4
-    lp_filter.C1 = (2, 0), 100e-9
-    lp_filter.R_load = (2, 0), 1e12
+    fra = clb.FrequencyAnalysis(highpass_filter)
+    ax = fra.bode()
+    ax = fra.bode(C=400e-12, ax=ax)
 
-    highpass = Circuit(hp_filter)
-    lowpass = Circuit(lp_filter)
 
-    ax = highpass.bode(ax='return')
-    ax = lowpass.bode(ax=ax)
+.. image:: docs/images/highpass_filter.png
+    :width: 400
+    :align: center
 
 Installation
 ------------
