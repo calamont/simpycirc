@@ -39,17 +39,18 @@ def _netlist_converter(node_list, argspec):
     for node, keys in node_list.items():
         for key in keys:
             # if "V" in key.upper():
-            #     continue
+            #     continue)
             d[key].setdefault("nodes", []).append(node)
             try:
                 d[key]["value"] = argspec[key]
             except KeyError:
                 d[key]["value"] = None
+
     netlist = Netlist()
     for k, v in d.items():
         if len(v["nodes"]) == 1:
             v["nodes"].append(0)  # Connect lose connections to ground
-        netlist.__setattr__(k, v.values())
+        getattr(netlist, k[0])(v["nodes"][0], v["nodes"][1], v["value"], k)
     return netlist
 
 
