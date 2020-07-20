@@ -3,13 +3,15 @@
 import sys
 import copy
 import types
+import inspect
 import numpy as np
-
-# import stamps as stamps
+import matplotlib.pyplot as plt
 
 from .stamps import Stamps
 from .netlist import Netlist
 from .parse import _parse_func
+
+y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}
 
 
 class ModifiedNodalAnalysis:
@@ -17,7 +19,6 @@ class ModifiedNodalAnalysis:
 
     def __init__(self, circuit=None):
         """Takes in netlist and builds node matrices for MNA."""
-        self._initialised = False
         if circuit is not None:
             if callable(circuit):
                 self.netlist = _parse_func(circuit)
@@ -30,57 +31,35 @@ class ModifiedNodalAnalysis:
 
             self.A1, self.A2, self.s = self._stamp_matrices(self.netlist)
 
-            # def solve_matrix(**kwargs):
-            #     if len(kwargs) > 0:
-            #         mna_ = self.copy()
-            #         mna_.update(**kwargs)
-            #     else:
-            #         mna_ = self
-            #     return np.linalg.solve(mna_.A_matrix, mna_.z_matrix)
-
-            # solve_matrix = self._add_func_signature(solve_matrix)
-            # self.__call__ = solve_matrix
-
-        def __call__(self, *args, **kwargs):
-            pass
+    def __call__(self, *args, **kwargs):
+        pass
 
     def _stamp_matrices(self, netlist):
+        """Samp values into two square matrices for group 1 and group 2 components."""
         mat_size = len(netlist.group1_components + netlist.group2_components)
         A1 = np.zeros((mat_size, mat_size))
         A2 = np.zeros((mat_size, mat_size))
         s = np.zeros(mat_size)
 
-        stamp_funcs = Stamps()
+        stamp_funcs = Stamps()  # TODO: does this need to be a class or could be dict?
         for key, val in netlist.components.items():
             if val["value"] is not None:
-                print(val)
                 stamp = getattr(stamp_funcs, val["type"])
                 A1, A2, s = stamp(A1, A2, s, **val)
         return A1, A2, s
 
-    #     def initialise(self, **kwargs):
-    #         """Updates component values."""
-    #         for key, val in kwargs.items():
-    #             if key not in self.netlist.components:
-    #                 raise KeyError(f"{key} not defined for the original circuit.")
-
-    #             if val is not None:
-    #                 self.stamp_values[key] = self._component_impedance(key, val)
-
     def update(self, **kwargs):
-        """Updates component values."""
+        """Updates default component values."""
         stamp_funcs = Stamps()
-        # A1, A2, s = self.A1.copy(), self.A2.copy(), self.s.copy()
+        # Check if kwargs match existing component values.
         for key, val in kwargs.items():
             if key not in self.netlist.components:
                 raise KeyError(f"{key} not defined for the original circuit.")
 
             comp = self.netlist.components[key]
-            if val is not None:
-                comp["value"] = val
-                stamp = getattr(stamp_funcs, comp["type"])
-                self.A1, self.A2, self.s = stamp(self.A1, self.A2, self.s, **{**comp})
-        # return A1, A2, s
+            comp["value"] = val
+            stamp = getattr(stamp_funcs, comp["type"])
+            self.A1, self.A2, self.s = stamp(self.A1, self.A2, self.s, **{**comp})
 
     def copy(self):
         """Deep copy of object. Needed for `__call__` if **kwargs supplied."""
@@ -132,25 +111,37 @@ class ModifiedNodalAnalysis:
 class AC(ModifiedNodalAnalysis):
     """AC analysis of circuit."""
 
-    def __init__(self, circuit, freq=None):
+    def __init__(self, circuit):
         super().__init__(circuit=circuit)
-        if freq is not None:
-            if isinstance(freq, (int, float)):
-                freq = [float(freq)]
-            self.freq = np.array(freq)
+        if callable(circuit):
+            argspec = inspect.getfullargspec(circuit)
+            arg_dict = dict(zip(argspec.args, argspec.defaults))
+            self.freq = arg_dict.get("freq", None)
+        else:
+            self.freq = self.netlist.freq
+        if self.freq is not None:
+            if isinstance(self.freq, (int, float)):
+                self.freq = [
+                    float(self.freq)
+                ]  # TODO: do we need to put brackets around freq here?
+            self.freq = np.array(self.freq)  # make freq array like for calculations
 
+        # Create function for solving MNA on the fly
         def solve_matrix(freq, **kwargs):
             if len(kwargs) > 0:
+                # Make copy so default values are preserved even if multiple
+                # calls made to function with different component values.
                 mna_ = self.copy()
                 mna_.update(**kwargs)
             else:
                 mna_ = self
 
             if len(mna_.undefined) > 0:
-                # Create readable string of components without defined values
+                # Raise error if components have undefined values. Create
+                # readable string listing these components.
                 missing_vars = mna_.undefined[0]
                 if len(mna_.undefined) == 2:
-                    missing_vars += " and " + mna.undefined[-1]
+                    missing_vars += " and " + mna_.undefined[-1]
                 elif len(mna_.undefined) > 2:
                     missing_vars += (
                         ", "
@@ -161,7 +152,7 @@ class AC(ModifiedNodalAnalysis):
                 raise TypeError(f"{self} missing argument values for {missing_vars}")
 
             return np.linalg.solve(
-                mna_.A1[None, :, :] + mna_.A2[None, :, :] * freq[:, None, None],
+                mna_.A1[None, :, :] + 1j * mna_.A2[None, :, :] * freq[:, None, None],
                 mna_.s[None, :],
             )
 
@@ -238,6 +229,232 @@ class AC(ModifiedNodalAnalysis):
         """
         return func
 
+    def multimeter(self, pos_node, neg_node=0, mode="V", **kwargs):
+        """Measures voltage, current or impedance between circuit nodes.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.multimeter(pos_node=2, R1=10e3, R2=20e3)
+
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+
+        Returns:
+            numpy.ndarray: The measurement between `pos_node` and `neg_node`
+                over the frequencies defined for the circuit.
+        """
+        freq = kwargs.pop("freq", self.freq)
+        if freq is None:
+            raise ValueError("freq has not been defined.")
+        elif not isinstance(freq, np.ndarray):
+            if isinstance(freq, (int, float)):
+                freq = [
+                    float(freq)
+                ]  # TODO: do we need to put brackets around freq here?
+            freq = np.array(freq)  # make freq array like for calculations
+        V = self._solve_matrix(freq, **kwargs)
+        if mode == "V":
+            if not neg_node:
+                return V[:, pos_node - 1]
+            # If negative lead isn't connected to ground then calculate the
+            # potential difference between the two nodes
+            return V[:, pos_node - 1] - V[:, neg_node - 1]
+        # If calculating current or impedances then we must find the impedances
+        # between the circuit nodes. Currently this involves making a copy
+        # of the object, updateing any component values, and calculating the
+        # impedances using the A matrices and the measurement frequency.
+        # TODO: Update the below calls as now we don't have a G matrix
+        tmp_circuit = self.copy()
+        tmp_circuit.update(**kwargs)
+        G = (
+            tmp_circuit.A1[None, :, :]
+            + 1j * tmp_circuit.A2[None, :, :] * freq[:, None, None]
+        )
+        if not neg_node:
+            Z = 1 / np.sum(G[:, pos_node - 1, :], axis=-1)
+            if mode == "Z":
+                return Z
+            elif mode == "I":
+                return V[:, pos_node - 1] / Z
+        Z = -1 / G[:, pos_node - 1, neg_node - 1]
+        if mode == "Z":
+            return Z
+        elif mode == "I":
+            return (V[:, pos_node - 1] - V[:, neg_node - 1]) / Z
+
+    def bode(
+        self,
+        pos_node,
+        neg_node=0,
+        mode="V",
+        figsize=(5.31, 5),
+        dpi=100,
+        ax=None,
+        **kwargs,
+    ):
+        """Displays Bode plot of the circuit.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs. Similarly any kwargs
+        for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.bode(pos_node=2, R1=10e3, linestyle="--")
+
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+            figsize (tuple, optional): Width and height of the figure in inches.
+                Defaults to (5.31, 5).
+            dpi (int, optional): The figure resolution. Defaults to 100.
+            ax (`matplotlib.pyplot.Axes`, optional): Object or array of
+                `matplotlib.pyplot.Axes` objects to draw Bode plot on.
+                Defaults to None.
+            **kwargs:
+                Circuit component values (i.e. R1=100) or additional arguments
+                passed to `matplotlib.pyplot.plot` call.
+
+        Returns:
+            ax: Object or array of `matplotlib.pyplot.Axes` objects.
+        """
+        # Split kwargs into `circuitlib` components and
+        # `matplotlib.pyplot.plot` kwargs
+        freq = kwargs.get("freq", self.freq)
+
+        clb_kwargs = {}
+        mpl_kwargs = kwargs.copy()
+        for k, v in kwargs.items():
+            if k in self.components + ["freq"]:
+                clb_kwargs[k] = mpl_kwargs.pop(k)
+
+        data = self.multimeter(pos_node, neg_node, mode, **clb_kwargs)
+        Z, phase = np.abs(data), np.angle(data, deg=True)
+
+        if ax is None:
+            fig, ax = plt.subplots(2, 1, sharex=True, figsize=figsize, dpi=dpi)
+
+        # TODO: Choose best limits if multiple plots are drawn on the same fig.
+        ax[1].set_xlim([np.min(freq), np.max(freq)])
+        y_lim = [
+            [np.min(Z) * 0.5, np.max(Z) * 2],
+            [np.min([0, *phase]) * 1.2, np.max([0, *phase]) * 1.2 + 5],
+        ]
+        if all(phase < 0):  # reverse y-limits if all values negative
+            y_lim[1] = [y_lim[1][1], y_lim[1][0]]
+        ax[0].set_ylim(y_lim[0])
+        ax[1].set_ylim(y_lim[1])
+        ax[0].set_ylabel(y_label[mode], fontname="Roboto")
+        ax[1].set_ylabel("Phase (°)", fontname="Roboto")
+        ax[1].set_xlabel("Frequency (Hz)", fontname="Roboto")
+        ax[0].loglog(freq, Z, **mpl_kwargs)
+        ax[1].semilogx(freq, phase, **mpl_kwargs)
+        return ax
+
+    def nyquist(
+        self,
+        pos_node,
+        neg_node=0,
+        mode="V",
+        figsize=(5.31, 3.25),
+        dpi=100,
+        ax=None,
+        **kwargs,
+    ):
+        """Displays Nyquist plot of the circuit.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs. Similarly any kwargs
+        for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.nyquist(pos_node=2, R1=10e3, linestyle="--")
+
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+            figsize (tuple, optional): Width and height of the figure in inches.
+                Defaults to (5.31, 5).
+            dpi (int, optional): The figure resolution. Defaults to 100.
+            ax (`matplotlib.pyplot.Axes`, optional): Object or array of
+                `matplotlib.pyplot.Axes` objects to draw Bode plot on.
+                Defaults to None.
+            **kwargs:
+                Circuit component values (i.e. R1=100) or additional arguments
+                passed to `matplotlib.pyplot.plot` call.
+
+        Returns:
+            ax: Object or array of `matplotlib.pyplot.Axes` objects.
+        """
+        # Split kwargs into `circuitlib` components and
+        # `matplotlib.pyplot.plot` kwargs
+        clb_kwargs = {}
+        mpl_kwargs = kwargs.copy()
+        for k, v in kwargs.items():
+            if k in self.components:
+                clb_kwargs[k] = mpl_kwargs.pop(k)
+
+        data = self.multimeter(pos_node, neg_node, mode, **clb_kwargs)
+
+        x_lim = [0, np.max(data.real) * 1.2]
+        if np.sum(np.sign([np.min(data.imag), np.max(data.imag)])):
+            idx_min = np.argmin(np.abs((data.imag)))
+            idx_max = np.argmax(np.abs((data.imag)))
+            y_lim = [data.imag[idx_min] * 1.2, data.imag[idx_max] * 1.2]
+        else:
+            y_max = np.max(np.abs((data.imag)))
+            y_lim = [-y_max * 1.2, y_max * 1.2]
+
+        if ax is None:
+            fig, ax = plt.subplots(sharex=True, figsize=figsize, dpi=dpi)
+
+        ax.set_xlim(x_lim)
+        ax.set_ylim(y_lim)
+        ax.set_xlabel(f"Real {y_label[mode].lower()}", fontname="Roboto")
+        ax.set_ylabel(f"Imag {y_label[mode].lower()}", fontname="Roboto")
+
+        # Change position of x-axis and its label if plot goes through
+        # negative and positive values
+        if (y_lim[0] < 0) & (y_lim[1] > 0):
+            ax.spines["bottom"].set_position(("data", 0.0))
+            ax.xaxis.set_label_coords(
+                0.95, 0.55,
+            )
+        ax.plot(data.real, data.imag, **mpl_kwargs)
+        return ax
+
 
 class Transient(ModifiedNodalAnalysis):
     """Transient analysis of circuit."""
@@ -260,7 +477,7 @@ class Transient(ModifiedNodalAnalysis):
                 # Create readable string of components without defined values
                 missing_vars = mna_.undefined[0]
                 if len(mna_.undefined) == 2:
-                    missing_vars += " and " + mna.undefined[-1]
+                    missing_vars += " and " + mna_.undefined[-1]
                 elif len(mna_.undefined) > 2:
                     missing_vars += (
                         ", "

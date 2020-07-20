@@ -11,8 +11,8 @@ class Netlist:
         """Linear resistor.
 
         Args:
-            nodes (list): Nodes connected the positive and negative terminals of the component.
-            value (float): Value of the component in SI units.
+            nodes (list): Nodes connected the positive and negative terminals
+            of the component. value (float): Value of the component in SI units.
         """
         self.component_count["R"] = self.component_count.get("R", 0) + 1
         if name is None:
@@ -29,8 +29,8 @@ class Netlist:
         """Linear resistor.
 
         Args:
-            nodes (list): Nodes connected the positive and negative terminals of the component.
-            value (float): Value of the component in SI units.
+            nodes (list): Nodes connected the positive and negative terminals
+            of the component. value (float): Value of the component in SI units.
         """
         self.component_count["C"] = self.component_count.get("C", 0) + 1
         if name is None:

@@ -36,7 +36,6 @@ def _flatten(nested_list):
 def _netlist_converter(node_list, argspec):
     """Converts a node list into a netlist"""
     d = defaultdict(dict)
-    print(node_list)
     for node, keys in node_list.items():
         for key in keys:
             # if "V" in key.upper():
@@ -48,10 +47,8 @@ def _netlist_converter(node_list, argspec):
                 d[key]["value"] = None
 
     netlist = Netlist()
-    print(d)
     for k, v in d.items():
         if len(v["nodes"]) == 1:
-            print(k)
             v["nodes"].append(0)  # Connect lose connections to ground
         getattr(netlist, k[0])(v["nodes"][0], v["nodes"][1], v["value"], k)
     return netlist
