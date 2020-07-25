@@ -48,8 +48,8 @@ class Stamps:
         A1[-group2_idx, -group2_idx] += 1
         return A1, A2, s
 
-    def V(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type):
-        s[-1] = value
+    def V(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type, signal):
+        s[-1] = signal(0)  # initialise voltage to value at t=0
         for n, sign in zip(nodes, [1, -1]):
             if n - 1 < 0:
                 continue

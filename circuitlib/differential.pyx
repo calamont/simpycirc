@@ -10,7 +10,7 @@ from libc.math cimport sin, fabs, isnan, M_PI
 from scipy.linalg.cython_lapack cimport dgesvx, dgesv
 from libc.stdint cimport uintptr_t
 
-cpdef solver(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end, double h_n, comp_dict):
+cpdef DEA_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end, double h_n, comp_dict):
     """Solves the differential algebriac equation of the circuits transient 
     response.
 
@@ -120,12 +120,14 @@ cpdef solver(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end, d
                 # plte uneccesarily small. Increase step size and repeat step.
                 h_n *= 2.0
             elif plte > 1e-5:
-                # plte too large. Increase step size and repeat step.
+                # plte too large. Decrease step size and repeat step.
                 h_n = h_n / 2.0
 
             if step > max_steps:  # TODO: raise error if over 50% of steps unsuccesful
                 break
             elif succesful_steps+1 == max_success_steps:
+                # Have hit length of arrays. Need to reallocate memory to
+                # continue simulation.
                 max_steps *= 2
                 max_success_steps *= 2
                 time_steps = <double *>PyMem_RawRealloc(time_steps, max_success_steps * sizeof(double))
@@ -148,26 +150,28 @@ cpdef solver(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end, d
 #     if info < 0:
 #         return info
     
+# Create typedef to represent voltage/source signal functions
 ctypedef double (*func)(double x, double y) nogil
 
+# TODO: Need to handle group 2 components using `group2_idx`
 ctypedef struct comp:
-    int type;
-    int node1;
-    int node2;
-    func source;
+    int type;  # type of component (resistor, capacitor etc.)
+    int node1;  # the positive node
+    int node2;  # the positive node
+    func source;  # source signal (only relevant for V/I sourcses)
     double val1;
-    double val2;
-    double prev[2];
+    double val2;  # TODO: work out if this is still needed
+    double prev[2];  # voltage/current for component in previous time step
  
 
 cdef double square(double x, double y) nogil:
-    
+
     cdef double tmod = x % (2 * M_PI)
     if tmod <= M_PI:
         return 1.0
     else:
         return -1.0
-    
+
 
 cdef double sawtooth(double t, double w) nogil:
     cdef double tmod = t % (2 * M_PI)
@@ -175,10 +179,10 @@ cdef double sawtooth(double t, double w) nogil:
         return tmod / (M_PI * w) - 1
     else:
         return (M_PI * (w + 1) - tmod) / (M_PI * (1 - w))
-    
+
 
 cdef parse_components(comp_dict, comp* comp_list):
-    
+
     for i, val in enumerate(comp_dict.values()):
         comp_list[i].node1 = val["nodes"][0] - 1
         comp_list[i].node2 = val["nodes"][1] - 1
@@ -186,55 +190,51 @@ cdef parse_components(comp_dict, comp* comp_list):
         comp_list[i].prev[1] = 0
         comp_list[i].val1 = val["value"]
         comp_list[i].val2 = 0
-        
+
         if val["type"] == "V":
             comp_list[i].node1 = val["dependent"]
             comp_list[i].type = 0
-            comp_list[i].source = sawtooth
-            
+            comp_list[i].source = sawtooth  # TODO: how are we auto allocating this? Could use big if/elif statement if can't think of anything else.
+
         if val["type"] == "R":
             comp_list[i].type = 1
-            
+
         if val["type"] == "C":
             comp_list[i].type = 2
-            
+
         if val["type"] == "L":
             comp_list[i].type = 3
-    
-    
-cdef void copy_reset_x(double[::1] x, double[::1] out) nogil:
-    cdef int dim=x.shape[0]
-    for i in range(dim):
-        out[i] = x[i]
-        x[i] = 0
 
 
 cdef int stamp(double[::1] x, double[::1] x_prev, comp* c, int n, double t, double step, int it) nogil:
-    
-    fillZeros(x)
-    
+
+    fillZeros(x)  # remove previous values stored in x
+
     for i in range(n):
-        
+
         if c[i].type == 0:  # if voltage source
             x[c[i].node1] += c[i].source(t, 1)
 
+        # TODO: Create a resource in the docs that explains these equations below
+        # TODO: does the below work if it is a group 2 capacitor?
         elif c[i].type == 2:  # if capacitor
-            if c[i].node1 == -1:
+            if c[i].node1 == -1:  # if node1 connected to ground
                 x[c[i].node2] += c[i].prev[it] + (2.0*c[i].val1/step)*x_prev[c[i].node2]
-            elif c[i].node2 == -1:
+            elif c[i].node2 == -1:  # if node2 connected to ground
                 x[c[i].node1] += c[i].prev[it] + (2.0*c[i].val1/step)*x_prev[c[i].node1]
             else:
                 x[c[i].node1] += (c[i].prev[it] + (2.0*c[i].val1/step)*(x_prev[c[i].node1] - x_prev[c[i].node2]))
                 x[c[i].node2] -= (c[i].prev[it] + (2.0*c[i].val1/step)*(x_prev[c[i].node1] - x_prev[c[i].node2]))
         elif c[i].type == 3:  # if inductor
+                # TODO: Handle if node connected to ground?
                 x[c[i].node1] += (c[i].prev[i] + (2.0*c[i].val1/step)*(x_prev[c[i].node1] - x_prev[c[i].node2]))
                 x[c[i].node2] -= (c[i].prev[i] + (2.0*c[i].val1/step)*(x_prev[c[i].node1] - x_prev[c[i].node2]))
-        
+
     return n
-    
-    
+
+
 cdef void update_prev(double[::1] x, double[::1] x_prev, comp* c, int n, double step) nogil:
-    
+
     # Iterate through each component and stamp value onto x
     cdef double u = 0, u_prev = 0
     for i in range(n):

@@ -475,7 +475,7 @@ class Transient(ModifiedNodalAnalysis):
 
         # Create function for solving differentiable algebraic equations
         # on the fly
-        def solve_DAE(time, **kwargs):
+        def solve_DAE(time, init=0, **kwargs):
             if len(kwargs) > 0:
                 # Make copy so default values are preserved even if multiple
                 # calls made to function with different component values.
@@ -499,6 +499,9 @@ class Transient(ModifiedNodalAnalysis):
                     )
                 raise TypeError(f"{self} missing argument values for {missing_vars}")
 
+            # Solve for intitial conditions under DC
+            # Should solve for each voltage/current source at t=0
+            # Need to solve how to hadle the signal generators for each source
             transient = DAE()
             if len(time) > 0:
                 # Interpolate results from the DAE to the provided time steps.
@@ -507,6 +510,13 @@ class Transient(ModifiedNodalAnalysis):
 
         self._solve_DAE = self._add_func_signature(solve_DAE)
         self.__call__ = self._solve_DAE
+
+    def _initial_conditions(self):
+        """Determines initial conditions before transient analysis."""
+        # Iterates through each voltage source and solves for signal in self.s
+        # and returns this column vector.
+        # return s
+        pass
 
     def __call__(self, *args, **kwargs):
         return self._solve_DAE(*args, **kwargs)
