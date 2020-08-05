@@ -10,7 +10,8 @@ import matplotlib.pyplot as plt
 from .stamps import Stamps
 from .netlist import Netlist
 from .parse import _parse_func
-from .differential import DAE
+
+# from .differential import DAE
 
 y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}
 
@@ -465,51 +466,52 @@ class Transient(ModifiedNodalAnalysis):
         if callable(circuit):
             argspec = inspect.getfullargspec(circuit)
             arg_dict = dict(zip(argspec.args, argspec.defaults))
-            self.freq = arg_dict.get("time", None)
+            self.time = arg_dict.get("time", None)
         else:
             self.time = self.netlist.time
         if self.time is not None:
             if isinstance(self.time, (int, float)):
                 self.time = [float(self.time)]
-            self.time = np.array(self.time)  # make freq array like for calculations
+            self.time = np.array(self.time)  # make time array like for calculations
 
+        # TODO: Add DAE solver
         # Create function for solving differentiable algebraic equations
         # on the fly
-        def solve_DAE(time, init=0, **kwargs):
-            if len(kwargs) > 0:
-                # Make copy so default values are preserved even if multiple
-                # calls made to function with different component values.
-                mna_ = self.copy()
-                mna_.update(**kwargs)
-            else:
-                mna_ = self
+        # def solve_DAE(time, init=0, **kwargs):
+        #     if len(kwargs) > 0:
+        #         # Make copy so default values are preserved even if multiple
+        #         # calls made to function with different component values.
+        #         mna_ = self.copy()
+        #         mna_.update(**kwargs)
+        #     else:
+        #         mna_ = self
 
-            if len(mna_.undefined) > 0:
-                # Raise error if components have undefined values. Create
-                # readable string listing these components.
-                missing_vars = mna_.undefined[0]
-                if len(mna_.undefined) == 2:
-                    missing_vars += " and " + mna_.undefined[-1]
-                elif len(mna_.undefined) > 2:
-                    missing_vars += (
-                        ", "
-                        + ", ".join(mna_.undefined[1:-1])
-                        + " and "
-                        + mna_.undefined[-1]
-                    )
-                raise TypeError(f"{self} missing argument values for {missing_vars}")
+        #     if len(mna_.undefined) > 0:
+        #         # Raise error if components have undefined values. Create
+        #         # readable string listing these components.
+        #         missing_vars = mna_.undefined[0]
+        #         if len(mna_.undefined) == 2:
+        #             missing_vars += " and " + mna_.undefined[-1]
+        #         elif len(mna_.undefined) > 2:
+        #             missing_vars += (
+        #                 ", "
+        #                 + ", ".join(mna_.undefined[1:-1])
+        #                 + " and "
+        #                 + mna_.undefined[-1]
+        #             )
+        #         raise TypeError(f"{self} missing argument values for {missing_vars}")
 
-            # Solve for intitial conditions under DC
-            # Should solve for each voltage/current source at t=0
-            # Need to solve how to hadle the signal generators for each source
-            transient = DAE()
-            if len(time) > 0:
-                # Interpolate results from the DAE to the provided time steps.
-                pass
-            return transient
+        #     # Solve for intitial conditions under DC
+        #     # Should solve for each voltage/current source at t=0
+        #     # Need to solve how to hadle the signal generators for each source
+        #     transient = DAE()
+        #     if len(time) > 0:
+        #         # Interpolate results from the DAE to the provided time steps.
+        #         pass
+        #     return transient
 
-        self._solve_DAE = self._add_func_signature(solve_DAE)
-        self.__call__ = self._solve_DAE
+        # self._solve_DAE = self._add_func_signature(solve_DAE)
+        # self.__call__ = self._solve_DAE
 
     def _initial_conditions(self):
         """Determines initial conditions before transient analysis."""
@@ -533,7 +535,7 @@ class Transient(ModifiedNodalAnalysis):
             func.__code__.co_code,
             (),
             (),
-            tuple(["freq"] + self.components + ["kwargs", "kwargs"]),
+            tuple(["time"] + self.components + ["kwargs", "kwargs"]),
             func.__code__.co_filename,
             func.__code__.co_name,
             func.__code__.co_firstlineno,
@@ -576,7 +578,7 @@ class Transient(ModifiedNodalAnalysis):
             Args:
                 circuit (, optional): Function or spc.Netlist to create simulating
                 function from. Defaults to None.
-                freq (float, optional): Frequency/frequencies to simulate circuit over.
+                time (float, optional): Frequency/frequencies to simulate circuit over.
                 Defaults to 1000.0.
 
             Raises:

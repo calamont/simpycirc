@@ -1,4 +1,3 @@
-%%cython --annotate
 import cython
 from cython.parallel import prange
 import numpy as np
