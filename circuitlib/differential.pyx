@@ -191,9 +191,18 @@ cdef parse_components(comp_dict, comp* comp_list):
         comp_list[i].val2 = 0
 
         if val["type"] == "V":
-            comp_list[i].node1 = val["dependent"]
+            comp_list[i].node1 = -1 * val["group2_idx"]
             comp_list[i].type = 0
-            comp_list[i].source = sawtooth  # TODO: how are we auto allocating this? Could use big if/elif statement if can't think of anything else.
+            # TODO: how are we auto allocating the signal generator?
+            # Could use big if/elif statement like below but it's verbose.
+            if val["signal"].__name__ == "DC":
+                comp_list[i].source = DC
+            elif val["signal"].__name__ == "sin":
+                comp_list[i].source = sin
+            elif val["signal"].__name__ == "square":
+                comp_list[i].source = square
+            elif val["signal"].__name__ == "sawtooth":
+                comp_list[i].source = sawtooth
 
         if val["type"] == "R":
             comp_list[i].type = 1
