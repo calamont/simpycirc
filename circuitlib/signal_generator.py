@@ -1,4 +1,3 @@
-"""Signal generator functions."""
 import numpy as np
 from scipy import signal
 from functools import wraps
@@ -25,16 +24,16 @@ def partial(func, **kwargs):
 #     pass
 
 
-def DC(time, value, period):
+def DC(time, value):
     """Constant DC value."""
     return np.full_like(time, value)
 
 
-def sin(time, value, period, x_offset, y_offset, mod):
+def sin(time, value, period, x_offset=0, y_offset=0):
     return np.sin(((time - x_offset) * 2 * np.pi) / period) + y_offset
 
 
-def sawtooth(time, value, period, offset, mod):
+def sawtooth(time, value, period, mod, x_offset=0, y_offset=0):
     """Sawtooth wave signal.
 
     Args:
@@ -44,11 +43,11 @@ def sawtooth(time, value, period, offset, mod):
         offset (float):
         mod (float, optional):
     """
-    return signal.sawtooth((time * 2 * np.pi) / period, mod) + offset
+    return signal.sawtooth(((time - x_offset) * 2 * np.pi) / period, mod) + y_offset
 
 
-def square(time, value, period, offset, mod):
-    return signal.square((time * 2 * np.pi) / period, mod) + offset
+def square(time, value, period, mod, x_offset=0, y_offset=0):
+    return signal.square(((time - x_offset) * 2 * np.pi) / period, mod) + y_offset
 
 
 def template_signal(time, value, period):

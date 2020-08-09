@@ -2,6 +2,13 @@ import copy
 import pprint
 from . import signal_generator
 
+kwarg_defaults = {
+    "period": 0,
+    "x_offset": 0,
+    "y_offset": 0,
+    "mod": 0,
+}
+
 
 class Netlist:
     def __init__(self):
@@ -81,6 +88,7 @@ class Netlist:
             "signal": signal_generator.partial(
                 getattr(signal_generator, signal), value=value, **signal_kwargs
             ),  # can we get the function name to then find the similarly named C function in the transient call?
+            "set_kwargs": {**kwarg_defaults, **signal_kwargs},
         }
 
     def VCVS(self, nodes, value):
