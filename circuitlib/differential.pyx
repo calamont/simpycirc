@@ -5,11 +5,14 @@ cimport numpy as np
 
 from libc.stdlib cimport malloc, calloc, free
 from cpython.mem cimport PyMem_Malloc, PyMem_Realloc, PyMem_Free, PyMem_RawRealloc
-from libc.math cimport sin, fabs, isnan, M_PI
+from libc.math cimport fabs, isnan, M_PI
+from libc.math cimport sin as csin
 from scipy.linalg.cython_lapack cimport dgesvx, dgesv
 from libc.stdint cimport uintptr_t
+from .signal_generator_cython cimport DC, sin, sawtooth, square
 
-cpdef DEA_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end, double h_n, comp_dict):
+
+cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double start, double end, double h_n, comp_dict):
     """Solves the differential algebriac equation of the circuits transient 
     response.
 
@@ -26,11 +29,11 @@ cpdef DEA_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end
     cdef comp * components = <comp *>malloc(n_components * sizeof(comp))
     if not (components):
         raise MemoryError()
-    parse_components(comp_dict, components)  # parse component dict into struct
-
+    cdef size_t matrix_shape = a1.shape[0]
+    parse_components(comp_dict, components, matrix_shape)  # parse component dict into struct
     # Assume the solver will complete the simulation in two times the number
     # of steps given by the time span and initial step size.
-    cdef int max_success_steps = int(end / h_n), max_steps = max_success_steps * 2
+    cdef int max_success_steps = int((end-start) / h_n), max_steps = max_success_steps * 2
 
     # Setting up variables for LAPACK solver
     cdef int n=a1.shape[0], nrhs=1, lda=a1.shape[0], ldx=init.shape[0], ldaf=a1.shape[0], ldx_n1=init.shape[0], info
@@ -52,7 +55,7 @@ cpdef DEA_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end
     cdef double plte=0.0, error=0.0, alpha, p=1   # error of integration
     cdef int step=-1, succesful_steps=-1, j       # count iterations
     cdef double i_n=0.0, i_n0, i_, v_             # currents/voltages at the present step
-    cdef double t=0.0  # time at step
+    cdef double t=start  # time at step
 
     # Views for arrays to improve speed
     cdef double [::1,:] x_n_view = x_n
@@ -150,37 +153,25 @@ cpdef DEA_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double end
 #         return info
     
 # Create typedef to represent voltage/source signal functions
-ctypedef double (*func)(double x, double y) nogil
+ctypedef double (*func)(double t, double value, double period, double mod, double x_offset, double y_offset) nogil
 
 # TODO: Need to handle group 2 components using `group2_idx`
 ctypedef struct comp:
     int type;  # type of component (resistor, capacitor etc.)
     int node1;  # the positive node
     int node2;  # the positive node
-    func source;  # source signal (only relevant for V/I sourcses)
     double val1;
     double val2;  # TODO: work out if this is still needed
     double prev[2];  # voltage/current for component in previous time step
- 
-
-cdef double square(double x, double y) nogil:
-
-    cdef double tmod = x % (2 * M_PI)
-    if tmod <= M_PI:
-        return 1.0
-    else:
-        return -1.0
+    func source;  # source signal (only relevant for V/I sourcses)
+    double period;
+    double mod;
+    double x_offset;
+    double y_offset;
 
 
-cdef double sawtooth(double t, double w) nogil:
-    cdef double tmod = t % (2 * M_PI)
-    if tmod < w * 2 * M_PI:
-        return tmod / (M_PI * w) - 1
-    else:
-        return (M_PI * (w + 1) - tmod) / (M_PI * (1 - w))
 
-
-cdef parse_components(comp_dict, comp* comp_list):
+cdef parse_components(comp_dict, comp* comp_list, matrix_shape):
 
     for i, val in enumerate(comp_dict.values()):
         comp_list[i].node1 = val["nodes"][0] - 1
@@ -191,8 +182,12 @@ cdef parse_components(comp_dict, comp* comp_list):
         comp_list[i].val2 = 0
 
         if val["type"] == "V":
-            comp_list[i].node1 = -1 * val["group2_idx"]
+            comp_list[i].node1 = matrix_shape - val["group2_idx"]
             comp_list[i].type = 0
+            comp_list[i].period = val["set_kwargs"]["period"]
+            comp_list[i].x_offset = val["set_kwargs"]["x_offset"]
+            comp_list[i].y_offset = val["set_kwargs"]["y_offset"]
+            comp_list[i].mod = val["set_kwargs"]["mod"]
             # TODO: how are we auto allocating the signal generator?
             # Could use big if/elif statement like below but it's verbose.
             if val["signal"].__name__ == "DC":
@@ -221,7 +216,7 @@ cdef int stamp(double[::1] x, double[::1] x_prev, comp* c, int n, double t, doub
     for i in range(n):
 
         if c[i].type == 0:  # if voltage source
-            x[c[i].node1] += c[i].source(t, 1)
+            x[c[i].node1] += c[i].source(t, c[i].val1, c[i].period, c[i].mod, c[i].x_offset, c[i].y_offset)
 
         # TODO: Create a resource in the docs that explains these equations below
         # TODO: does the below work if it is a group 2 capacitor?
@@ -259,10 +254,9 @@ cdef void update_prev(double[::1] x, double[::1] x_prev, comp* c, int n, double 
             else: 
                 u = x[c[i].node1] - x[c[i].node2]
                 u_prev = x_prev[c[i].node1] - x_prev[c[i].node2]
-                
             c[i].prev[0] = ((2.0*c[i].val1/step)*u - (c[i].prev[1] + ((2.0*c[i].val1/step)*u_prev)))
 
-            
+
 
 cdef void fillZeros(double[::1] x) nogil:
     cdef int dim=x.shape[0]

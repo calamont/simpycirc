@@ -16,10 +16,15 @@ setup(
     ext_modules=cythonize(
         [
             Extension(
+                "circuitlib.signal_generator_cython",
+                ["circuitlib/signal_generator_cython.pyx"],
+                include_dirs=[numpy.get_include()],
+            ),
+            Extension(
                 "circuitlib.differential",
                 ["circuitlib/differential.pyx"],
                 include_dirs=[numpy.get_include()],
-            )
+            ),
         ]
     ),
     url="https://github.com/calamont/circuitlib",
