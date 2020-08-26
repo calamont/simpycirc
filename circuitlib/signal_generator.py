@@ -30,7 +30,7 @@ def DC(time, value):
 
 
 def sin(time, value, period, x_offset=0, y_offset=0):
-    return np.sin(((time - x_offset) * 2 * np.pi) / period) + y_offset
+    return value * np.sin(((time - x_offset) * 2 * np.pi) / period) + y_offset
 
 
 def sawtooth(time, value, period, mod, x_offset=0, y_offset=0):
@@ -43,11 +43,16 @@ def sawtooth(time, value, period, mod, x_offset=0, y_offset=0):
         offset (float):
         mod (float, optional):
     """
-    return signal.sawtooth(((time - x_offset) * 2 * np.pi) / period, mod) + y_offset
+    return (
+        value * signal.sawtooth(((time - x_offset) * 2 * np.pi) / period, mod)
+        + y_offset
+    )
 
 
 def square(time, value, period, mod, x_offset=0, y_offset=0):
-    return signal.square(((time - x_offset) * 2 * np.pi) / period, mod) + y_offset
+    return (
+        value * signal.square(((time - x_offset) * 2 * np.pi) / period, mod) + y_offset
+    )
 
 
 def template_signal(time, value, period):

@@ -6,7 +6,7 @@ kwarg_defaults = {
     "period": 0,
     "x_offset": 0,
     "y_offset": 0,
-    "mod": 0,
+    "mod": 0.5,
 }
 
 

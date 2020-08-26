@@ -10,7 +10,7 @@ from libc.math cimport sin as csin
 from scipy.linalg.cython_lapack cimport dgesvx, dgesv
 from libc.stdint cimport uintptr_t
 from .signal_generator_cython cimport DC, sin, sawtooth, square
-
+from .components cimport comp
 
 cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double start, double end, double h_n, comp_dict):
     """Solves the differential algebriac equation of the circuits transient 
@@ -33,7 +33,7 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
     parse_components(comp_dict, components, matrix_shape)  # parse component dict into struct
     # Assume the solver will complete the simulation in two times the number
     # of steps given by the time span and initial step size.
-    cdef int max_success_steps = int((end-start) / h_n), max_steps = max_success_steps * 2
+    cdef int max_success_steps = int((end-h_n) / h_n), max_steps = max_success_steps * 2
 
     # Setting up variables for LAPACK solver
     cdef int n=a1.shape[0], nrhs=1, lda=a1.shape[0], ldx=init.shape[0], ldaf=a1.shape[0], ldx_n1=init.shape[0], info
@@ -46,6 +46,7 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
     cdef np.ndarray[double, ndim=2] x_n = np.empty((n,2), dtype=np.double, order="F")
     cdef np.ndarray[double, ndim=2] x_n1 = np.empty((ldx,2), dtype=np.double, order="F")
 
+    # Copy initial conditions into x_n array
     for i in range(init.shape[0]):
         x_n[i,0] = init[i]
         x_n[i,1] = init[i]
@@ -55,7 +56,7 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
     cdef double plte=0.0, error=0.0, alpha, p=1   # error of integration
     cdef int step=-1, succesful_steps=-1, j       # count iterations
     cdef double i_n=0.0, i_n0, i_, v_             # currents/voltages at the present step
-    cdef double t=start  # time at step
+    cdef double t=h_n  # time at step
 
     # Views for arrays to improve speed
     cdef double [::1,:] x_n_view = x_n
@@ -65,6 +66,8 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
     cdef double [::1,:] A_view=A
 
     # Arrays to store results of voltages at the selected time steps
+    # cdef np.ndarray[double, ndim=1] time_steps = np.zeros(max_success_steps*10, dtype=np.double, order="F")
+    # cdef np.ndarray[double, ndim=1] voltages = np.zeros(max_success_steps*30, dtype=np.double, order="F")
     cdef double *time_steps = <double *>PyMem_Malloc(max_success_steps * sizeof(double))
     cdef double *voltages = <double *>PyMem_Malloc(max_success_steps * ldx * sizeof(double))
     if not (time_steps and voltages):
@@ -105,7 +108,7 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
                 if fabs(error) > plte:
                     plte = fabs(error)
 
-            if (step < 2) or (1e-12 <= plte <= 1e-5):
+            if (step < 2) or (1e-12 <= plte <= 1e-5) or (plte == 0):
                 # Step succesful. Increment steps and save results.
 
                 update_prev(x_n1_view[:,0], x_n_view[:,0], components, n_components, h_n)
@@ -118,7 +121,7 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
                 time_steps[succesful_steps] = t
                 addResults(&voltages[succesful_steps*ldx], x_n_view[:,0])
 
-            elif 0 <= plte < 1e-12:
+            elif 0 < plte < 1e-12:
                 # plte uneccesarily small. Increase step size and repeat step.
                 h_n *= 2.0
             elif plte > 1e-5:
@@ -137,14 +140,15 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
                 if not (time_steps and voltages):
                     raise MemoryError()
 
+        # return time_steps, voltages
         return (np.asarray(<np.float64_t[:succesful_steps]> time_steps),
                 np.asarray(<np.float64_t[:succesful_steps, :3]> voltages))
 
     finally:
         PyMem_Free(ipiv)
         PyMem_Free(components)
-        PyMem_Free(time_steps)
-        PyMem_Free(voltages)
+        # PyMem_Free(time_steps)
+        # PyMem_Free(voltages)
     
     # TODO: Check if the full time range has been simulated. Perhaps do a sense check
     # at the start to ensure appropriate initial starting step size, then potentially
@@ -152,23 +156,6 @@ cpdef DAE_solve(double[::1,:] a1, double[::1,:] a2, double[::1] init, double sta
 #     if info < 0:
 #         return info
     
-# Create typedef to represent voltage/source signal functions
-ctypedef double (*func)(double t, double value, double period, double mod, double x_offset, double y_offset) nogil
-
-# TODO: Need to handle group 2 components using `group2_idx`
-ctypedef struct comp:
-    int type;  # type of component (resistor, capacitor etc.)
-    int node1;  # the positive node
-    int node2;  # the positive node
-    double val1;
-    double val2;  # TODO: work out if this is still needed
-    double prev[2];  # voltage/current for component in previous time step
-    func source;  # source signal (only relevant for V/I sourcses)
-    double period;
-    double mod;
-    double x_offset;
-    double y_offset;
-
 
 
 cdef parse_components(comp_dict, comp* comp_list, matrix_shape):
@@ -210,6 +197,17 @@ cdef parse_components(comp_dict, comp* comp_list, matrix_shape):
 
 
 cdef int stamp(double[::1] x, double[::1] x_prev, comp* c, int n, double t, double step, int it) nogil:
+    """Stamp transient matrix with next values.
+
+    Args:
+        x (array): the current values of x.
+        x_prev (array): the previous values of x.
+        c: Array of circuit components, each defined as `comp` structs.
+        n: Number of circuit components.
+        t: The current time step.
+        step: The length of the time step.
+        it: TODO
+    """
 
     fillZeros(x)  # remove previous values stored in x
 
@@ -237,7 +235,7 @@ cdef int stamp(double[::1] x, double[::1] x_prev, comp* c, int n, double t, doub
 
 
 cdef void update_prev(double[::1] x, double[::1] x_prev, comp* c, int n, double step) nogil:
-
+    """Define the new x values."""
     # Iterate through each component and stamp value onto x
     cdef double u = 0, u_prev = 0
     for i in range(n):
@@ -259,24 +257,29 @@ cdef void update_prev(double[::1] x, double[::1] x_prev, comp* c, int n, double 
 
 
 cdef void fillZeros(double[::1] x) nogil:
+    """Convenience function to set all entries of an array to zero."""
     cdef int dim=x.shape[0]
     for i in range(dim):
         x[i] = 0
-                                                                                   
+
+
 cdef void update_xs(double[::1,:] x_new, double[::1,:] x) nogil:
+    """Copy values from new x values into x array."""
     cdef int dim=x.shape[0]
     for i in range(dim):
-        x[i,1] = x[i,0]       
+        x[i,1] = x[i,0]
         x[i,0] = x_new[i,0]
-        
+
 
 cdef void addResults(double* results, double[::1] x) nogil:
+    """Copy values from x array into the growing list of results."""
     cdef int dim=x.shape[0]
     for i in range(dim):
         results[i] = x[i]
 
-        
+
 cdef void addDivide(double[::1,:] a1, double[::1,:] a2, double h, double[::1,:] out) nogil:
+    """Combine results from group 1 and group 2 matrices."""
     cdef int dim1=a1.shape[0], dim2=a1.shape[1], idx, result=0
     for i in range(dim1):
         for j in range(dim2):
