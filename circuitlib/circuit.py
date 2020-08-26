@@ -11,7 +11,7 @@ from .stamps import Stamps
 from .netlist import Netlist
 from .parse import _parse_func
 
-# from .differential import DAE
+from .differential import DAE_solve
 
 y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}
 
@@ -19,7 +19,7 @@ y_label = {"V": "Voltage", "I": "Current", "Z": "Impedance"}
 class ModifiedNodalAnalysis:
     """Constructs MNA matrices to solve."""
 
-    def __init__(self, circuit=None):
+    def __init__(self, circuit=None, transient=False):
         """Takes in netlist and builds node matrices for MNA."""
         if circuit is not None:
             if callable(circuit):
@@ -31,19 +31,22 @@ class ModifiedNodalAnalysis:
                     "The passed circuit must be a function or a `circuitlib.netlist.Netlist` object."
                 )
 
-            self.A1, self.A2, self.s = self._stamp_matrices(self.netlist)
+            self.A1, self.A2, self.s = self._stamp_matrices(self.netlist, transient)
 
     def __call__(self, *args, **kwargs):
         pass
 
-    def _stamp_matrices(self, netlist):
+    def _stamp_matrices(self, netlist, transient):
         """Samp values into two square matrices for group 1 and group 2 components."""
         mat_size = len(netlist.group1_components + netlist.group2_components)
-        A1 = np.zeros((mat_size, mat_size))
-        A2 = np.zeros((mat_size, mat_size))
+        # Arrays must be fortran contiguous for compatibility with LAPACK solvers
+        A1 = np.zeros((mat_size, mat_size), order="F")
+        A2 = np.zeros((mat_size, mat_size), order="F")
         s = np.zeros(mat_size)
 
-        stamp_funcs = Stamps()  # TODO: does this need to be a class or could be dict?
+        stamp_funcs = Stamps(
+            self.transient
+        )  # TODO: does this need to be a class or could be dict?
         for key, val in netlist.components.items():
             if val["value"] is not None:
                 stamp = getattr(stamp_funcs, val["type"])
@@ -52,7 +55,7 @@ class ModifiedNodalAnalysis:
 
     def update(self, **kwargs):
         """Updates default component values."""
-        stamp_funcs = Stamps()
+        stamp_funcs = Stamps(self.transient)
         # Check if kwargs match existing component values.
         for key, val in kwargs.items():
             if key not in self.netlist.components:
@@ -114,6 +117,7 @@ class AC(ModifiedNodalAnalysis):
     """AC analysis of circuit."""
 
     def __init__(self, circuit):
+        self.transient = False
         super().__init__(circuit=circuit)
         if callable(circuit):
             argspec = inspect.getfullargspec(circuit)
@@ -462,6 +466,7 @@ class Transient(ModifiedNodalAnalysis):
     """Transient analysis of circuit."""
 
     def __init__(self, circuit):
+        self.transient = True
         super().__init__(circuit=circuit)
         if callable(circuit):
             argspec = inspect.getfullargspec(circuit)
@@ -477,48 +482,68 @@ class Transient(ModifiedNodalAnalysis):
         # TODO: Add DAE solver
         # Create function for solving differentiable algebraic equations
         # on the fly
-        # def solve_DAE(time, init=0, **kwargs):
-        #     if len(kwargs) > 0:
-        #         # Make copy so default values are preserved even if multiple
-        #         # calls made to function with different component values.
-        #         mna_ = self.copy()
-        #         mna_.update(**kwargs)
-        #     else:
-        #         mna_ = self
+        def solve_DAE(time, **kwargs):
+            if len(kwargs) > 0:
+                # Make copy so default values are preserved even if multiple
+                # calls made to function with different component values.
+                mna_ = self.copy()
+                mna_.update(**kwargs)
+            else:
+                mna_ = self
 
-        #     if len(mna_.undefined) > 0:
-        #         # Raise error if components have undefined values. Create
-        #         # readable string listing these components.
-        #         missing_vars = mna_.undefined[0]
-        #         if len(mna_.undefined) == 2:
-        #             missing_vars += " and " + mna_.undefined[-1]
-        #         elif len(mna_.undefined) > 2:
-        #             missing_vars += (
-        #                 ", "
-        #                 + ", ".join(mna_.undefined[1:-1])
-        #                 + " and "
-        #                 + mna_.undefined[-1]
-        #             )
-        #         raise TypeError(f"{self} missing argument values for {missing_vars}")
+            if len(mna_.undefined) > 0:
+                # Raise error if components have undefined values. Create
+                # readable string listing these components.
+                missing_vars = mna_.undefined[0]
+                if len(mna_.undefined) == 2:
+                    missing_vars += " and " + mna_.undefined[-1]
+                elif len(mna_.undefined) > 2:
+                    missing_vars += (
+                        ", "
+                        + ", ".join(mna_.undefined[1:-1])
+                        + " and "
+                        + mna_.undefined[-1]
+                    )
+                raise TypeError(f"{self} missing argument values for {missing_vars}")
 
-        #     # Solve for intitial conditions under DC
-        #     # Should solve for each voltage/current source at t=0
-        #     # Need to solve how to hadle the signal generators for each source
-        #     transient = DAE()
-        #     if len(time) > 0:
-        #         # Interpolate results from the DAE to the provided time steps.
-        #         pass
-        #     return transient
+            # Solve for intitial conditions under DC
+            # Should solve for each voltage/current source at t=0
+            # Need to solve how to hadle the signal generators for each source
+            # TODO: could this use a DC class to solve for this?
+            init = self._initial_conditions(mna_, time[0])
+            step = 0.001
+            # def transient():
+            #     print(mna_.A1)
+            #     print(mna_.A2)
+            #     print(init)
+            #     print(time[-1])
+            #     print(step)
+            #     print(mna_.netlist.components)
+            transient = DAE_solve(
+                mna_.A1, mna_.A2, init, time[0], time[-1], step, mna_.netlist.components
+            )
+            if len(time) > 0:
+                # Interpolate results from the DAE to the provided time steps.
+                pass
+            return transient
 
-        # self._solve_DAE = self._add_func_signature(solve_DAE)
-        # self.__call__ = self._solve_DAE
+        self._solve_DAE = self._add_func_signature(solve_DAE)
+        self.__call__ = self._solve_DAE
 
-    def _initial_conditions(self):
+    def _initial_conditions(self, mna, time):
         """Determines initial conditions before transient analysis."""
+        s = self._source_array(mna, time)
+        return np.linalg.solve(mna.A1 + mna.A2, s)
+
+    def _source_array(self, mna, time):
         # Iterates through each voltage source and solves for signal in self.s
         # and returns this column vector.
-        # return s
-        pass
+        s = np.zeros_like(mna.s)
+        for key, val in mna.netlist.components.items():
+            # TODO: Need to handle what happens with current source
+            if key == "V":
+                s[-1 * val["group2_idx"]] = val["signal"](time)
+        return s
 
     def __call__(self, *args, **kwargs):
         return self._solve_DAE(*args, **kwargs)

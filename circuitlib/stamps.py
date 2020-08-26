@@ -1,6 +1,12 @@
 class Stamps:
     """Defines the component stamps for the MNA matrices."""
 
+    def __init__(self, transient):
+        if transient:
+            self.transient_modifier = 2
+        else:
+            self.transient_modifier = 1
+
     def R(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type):
         if group2_idx == 0:
             nodes = [n - 1 for n in nodes if n > 0]
@@ -21,6 +27,7 @@ class Stamps:
         return A1, A2, s
 
     def C(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type):
+        value *= self.transient_modifier  # stamp the value * 2 for transient analysis
         nodes = [n - 1 for n in nodes if n > 0]
         A2[nodes[0], nodes[0]] += value
         if len(nodes) < 2:
@@ -48,9 +55,23 @@ class Stamps:
         A1[-group2_idx, -group2_idx] += 1
         return A1, A2, s
 
-    def V(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type, signal):
-        s[-1] = signal(0)  # initialise voltage to value at t=0
-        for n, sign in zip(nodes, [1, -1]):
+    def V(
+        self,
+        A1,
+        A2,
+        s,
+        nodes,
+        dependent_nodes,
+        value,
+        group2_idx,
+        type,
+        signal,
+        set_kwargs,
+    ):
+        s[-1 * group2_idx] = signal(
+            0
+        )  # TODO: this only initialise voltage to value at t=0. Needs to handle any start time...
+        for n, sign in zip(nodes, [-1, 1]):
             if n - 1 < 0:
                 continue
             A1[-group2_idx, n - 1] += sign
