@@ -1,4 +1,5 @@
-from .circuit import NodalAnalysis
+# from .circuit import NodalAnalysis
+# from . import differential
 from .analysis import FrequencyAnalysis
 from .netlist import Netlist
 

@@ -1,19 +1,34 @@
-import setuptools
+import numpy
+from setuptools import Extension, setup, find_packages
+from Cython.Build import cythonize
 
 with open("README.md", "r") as f:
     long_description = f.read()
 
-setuptools.setup(
+setup(
     name="circuitlib",
     version="0.0.1",
     description="To easily simulate electrical circuits",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    packages=setuptools.find_packages(exclude=["docs", "tests"]),
+    packages=find_packages(exclude=["docs", "tests"]),
     install_requires=["matplotlib>=3.0", "scipy>=1.4.1", "numpy>=1.15",],
+    ext_modules=cythonize(
+        [
+            Extension(
+                "circuitlib.signal_generator_cython",
+                ["circuitlib/signal_generator_cython.pyx"],
+                include_dirs=[numpy.get_include()],
+            ),
+            Extension(
+                "circuitlib.differential",
+                ["circuitlib/differential.pyx"],
+                include_dirs=[numpy.get_include()],
+            ),
+        ]
+    ),
     url="https://github.com/calamont/circuitlib",
     author="Callum Lamont",
-    email="cal_lamont@hotmail.com",
     license="MIT",
     classifiers=[
         "Development Status :: 3 - Alpha",
