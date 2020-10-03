@@ -38,7 +38,7 @@ class ModifiedNodalAnalysis:
 
     def _stamp_matrices(self, netlist, transient):
         """Samp values into two square matrices for group 1 and group 2 components."""
-        mat_size = len(netlist.group1_components + netlist.group2_components)
+        mat_size = len(netlist.group2_components) + self.n_nodes - 1
         # Arrays must be fortran contiguous for compatibility with LAPACK solvers
         A1 = np.zeros((mat_size, mat_size), order="F")
         A2 = np.zeros((mat_size, mat_size), order="F")
@@ -55,16 +55,21 @@ class ModifiedNodalAnalysis:
 
     def update(self, **kwargs):
         """Updates default component values."""
-        stamp_funcs = Stamps(self.transient)
+        # stamp_funcs = Stamps(self.transient)
         # Check if kwargs match existing component values.
         for key, val in kwargs.items():
             if key not in self.netlist.components:
                 raise KeyError(f"{key} not defined for the original circuit.")
 
-            comp = self.netlist.components[key]
-            comp["value"] = val
-            stamp = getattr(stamp_funcs, comp["type"])
-            self.A1, self.A2, self.s = stamp(self.A1, self.A2, self.s, **{**comp})
+            self.netlist.components[key]["value"] = val
+        self.A1, self.A2, self.s = self._stamp_matrices(self.netlist, transient=True)
+        # TODO: need to unstamp value first! Currently we will just rebuild
+        # the entire A arrays as this should be relatively quick compared
+        # to the actual simulation step.
+        # comp = self.netlist.components[key]
+        # comp["value"] = val
+        # stamp = getattr(stamp_funcs, comp["type"])
+        # self.A1, self.A2, self.s = stamp(self.A1, self.A2, self.s, **{**comp})
 
     def copy(self):
         """Deep copy of object. Needed for `__call__` if **kwargs supplied."""
@@ -482,7 +487,7 @@ class Transient(ModifiedNodalAnalysis):
         # TODO: Add DAE solver
         # Create function for solving differentiable algebraic equations
         # on the fly
-        def solve_DAE(time, **kwargs):
+        def solve_DAE(time, step=0.001, initialise="zeros", **kwargs):
             if len(kwargs) > 0:
                 # Make copy so default values are preserved even if multiple
                 # calls made to function with different component values.
@@ -510,8 +515,8 @@ class Transient(ModifiedNodalAnalysis):
             # Should solve for each voltage/current source at t=0
             # Need to solve how to hadle the signal generators for each source
             # TODO: could this use a DC class to solve for this?
-            init = self._initial_conditions(mna_, time[0])
-            step = 0.001
+            init = self._initial_conditions(mna_, time[0], initialise)
+            # step = 0.001
             # def transient():
             #     print(mna_.A1)
             #     print(mna_.A2)
@@ -519,30 +524,42 @@ class Transient(ModifiedNodalAnalysis):
             #     print(time[-1])
             #     print(step)
             #     print(mna_.netlist.components)
-            transient = DAE_solve(
-                mna_.A1, mna_.A2, init, time[0], time[-1], step, mna_.netlist.components
-            )
-            if len(time) > 0:
-                # Interpolate results from the DAE to the provided time steps.
+            # transient = DAE_solve(
+            #     mna_.A1, mna_.A2, init, time[0], time[-1], step, mna_.netlist.components
+            # )
+            if isinstance(time, np.ndarray):
+                # time = np.ascontiguousarray(time)  # ensure array is C-contiguous
                 pass
+            elif len(time) == 2:
+                time = np.linspace(time[0], time[1], 1000)
+            transient = DAE_solve(time, mna_.A1, mna_.A2, init, mna_.netlist.components)
             return transient
 
         self._solve_DAE = self._add_func_signature(solve_DAE)
         self.__call__ = self._solve_DAE
 
-    def _initial_conditions(self, mna, time):
+    def _initial_conditions(self, mna, time, initialise):
         """Determines initial conditions before transient analysis."""
-        s = self._source_array(mna, time)
-        return np.linalg.solve(mna.A1 + mna.A2, s)
+        if initialise == "auto":
+            initialise = {}
+        elif initialise == "zeros":
+            initialise = dict.fromkeys(mna.netlist.components, 0)
+        if not isinstance(initialise, dict):
+            raise TypeError("initialise parameter not a dictionary")
+        s = self._source_array(mna, time, initialise)
+        # Solve AC circuit when freq=0 as this is equivalent to DC
+        return np.linalg.solve(mna.A1, s)
 
-    def _source_array(self, mna, time):
+    def _source_array(self, mna, time, initialise):
         # Iterates through each voltage source and solves for signal in self.s
         # and returns this column vector.
         s = np.zeros_like(mna.s)
         for key, val in mna.netlist.components.items():
             # TODO: Need to handle what happens with current source
-            if key == "V":
-                s[-1 * val["group2_idx"]] = val["signal"](time)
+            if "signal" in val:
+                # Try to get initial value for signal, defaulting to the
+                # signal at that time step if not defined.
+                s[-1 * val["group2_idx"]] = initialise.get(key, val["signal"](time))
         return s
 
     def __call__(self, *args, **kwargs):
@@ -614,3 +631,127 @@ class Transient(ModifiedNodalAnalysis):
                 arguments and simulates voltage response of the circuit nodes.
         """
         return func
+
+    def multimeter(self, nodes, mode="V", **kwargs):
+        """Measures voltage, current or impedance between circuit nodes.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.multimeter(pos_node=2, R1=10e3, R2=20e3)
+
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+
+        Returns:
+            numpy.ndarray: The measurement between `pos_node` and `neg_node`
+                over the frequencies defined for the circuit.
+        """
+        time = kwargs.pop("time", self.time)
+        if time is None:
+            raise ValueError("time has not been defined.")
+        V = self._solve_DAE(time, **kwargs)
+        if mode == "V":
+            if isinstance(nodes, (int, float)):
+                return V[:, nodes - 1]
+            # If negative lead isn't connected to ground then calculate the
+            # potential difference between the two nodes
+            return V[:, nodes[0] - 1] - V[:, nodes[1] - 1]
+        # TODO: NOT SURE IF ANY OF THE BELOW WORKS FOR TRANSIENT ANALYSIS...
+        # If calculating current or impedances then we must find the impedances
+        # between the circuit nodes. Currently this involves making a copy
+        # of the object, updateing any component values, and calculating the
+        # impedances using the A matrices and the measurement timeuency.
+        # TODO: Update the below calls as now we don't have a G matrix
+        # tmp_circuit = self.copy()
+        # tmp_circuit.update(**kwargs)
+        # G = (
+        #     tmp_circuit.A1[None, :, :]
+        #     + 1j * tmp_circuit.A2[None, :, :] * time[:, None, None]
+        # )
+        # if not neg_node:
+        #     Z = 1 / np.sum(G[:, pos_node - 1, :], axis=-1)
+        #     if mode == "Z":
+        #         return Z
+        #     elif mode == "I":
+        #         return V[:, pos_node - 1] / Z
+        # Z = -1 / G[:, pos_node - 1, neg_node - 1]
+        # if mode == "Z":
+        #     return Z
+        # elif mode == "I":
+        #     return (V[:, pos_node - 1] - V[:, neg_node - 1]) / Z
+
+    def oscilloscope(
+        self, nodes, mode="V", figsize=(6, 5), dpi=100, ax=None, **kwargs,
+    ):
+        """Displays Bode plot of the circuit.
+
+        Measurements are taken between two nodes, where the negative node
+        (`neg_node`) acts as the reference. The values of circuit components
+        can be updated by passing these in as kwargs. Similarly any kwargs
+        for the `matplotlib.pyplot.plot` function may be passed as well.
+
+        .. code:: python
+
+            fra = FrequencyAnalysis(my_circuit)
+            fra.bode(pos_node=2, R1=10e3, linestyle="--")
+
+
+        Args:
+            pos_node (int): The circuit node of interest, equivalent to the
+                positive lead on a multimeter.
+            neg_node (int, optional): The reference node from which the
+                measurement is defined, equivalent to the negative lead on a
+                multimeter. Defaults to 0 (i.e. ground).
+            mode (str, optional): The type of measurement to perform.
+                Options are "V" (voltage), "I" (current), and "Z" (impedance).
+                Defaults to "V".
+            figsize (tuple, optional): Width and height of the figure in inches.
+                Defaults to (5.31, 5).
+            dpi (int, optional): The figure resolution. Defaults to 100.
+            ax (`matplotlib.pyplot.Axes`, optional): Object or array of
+                `matplotlib.pyplot.Axes` objects to draw Bode plot on.
+                Defaults to None.
+            **kwargs:
+                Circuit component values (i.e. R1=100) or additional arguments
+                passed to `matplotlib.pyplot.plot` call.
+
+        Returns:
+            ax: Object or array of `matplotlib.pyplot.Axes` objects.
+        """
+        # Split kwargs into `circuitlib` components and
+        # `matplotlib.pyplot.plot` kwargs
+        time = kwargs.get("time", self.time)
+
+        clb_kwargs = {}
+        mpl_kwargs = kwargs.copy()
+        for k, v in kwargs.items():
+            if k in self.components + ["time", "initialise"]:
+                clb_kwargs[k] = mpl_kwargs.pop(k)
+
+        data = self.multimeter(nodes, mode, **clb_kwargs)
+
+        if ax is None:
+            fig, ax = plt.subplots(sharex=True, figsize=figsize, dpi=dpi)
+
+        ax.set_xlim([np.min(time), np.max(time)])
+        peak_to_peak = np.abs(np.max(data) - np.min(data))
+        ax.set_ylim(
+            [np.min(data) - peak_to_peak * 0.25, np.max(data) + peak_to_peak * 0.25]
+        )
+        ax.set_xlabel("Time (s)", fontname="Roboto")
+        ax.set_ylabel(y_label[mode], fontname="Roboto")
+        ax.plot(time, data, **mpl_kwargs)
+        return ax

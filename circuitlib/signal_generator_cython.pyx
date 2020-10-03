@@ -10,7 +10,7 @@ cdef double sin(double t, double value, double period, double mod, double x_offs
 
 cdef double sawtooth(double t, double value, double period, double mod, double x_offset, double y_offset) nogil:
     cdef double tmod = modulo((t - x_offset), (period))
-    if tmod < mod / period:
+    if tmod < mod * period:
         return (value * tmod / ((period / 2) * mod) - 1) + y_offset
     else:
         return (value * ((period / 2) * (mod + 1) - tmod) / ((period / 2) * (1 - mod))) + y_offset

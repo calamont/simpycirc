@@ -37,6 +37,16 @@ class Stamps:
         A2[nodes[1], nodes[0]] += -value
         return A1, A2, s
 
+    def L(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type):
+        value *= self.transient_modifier  # stamp the value * 2 for transient analysis
+        for n, sign in zip(nodes, [1, -1]):
+            if n - 1 < 0:
+                continue
+            A1[-group2_idx, n - 1] += sign
+            A1[n - 1, -group2_idx] += sign
+        A2[-group2_idx, -group2_idx] -= value
+        return A1, A2, s
+
     def _stamp_r2(self, A1, A2, s, nodes, dependent_nodes, value, group2_idx, type):
         for n, sign in zip(nodes, [1, -1]):
             if n - 1 < 0:
