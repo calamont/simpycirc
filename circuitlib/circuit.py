@@ -1,15 +1,11 @@
 """Code for constructing and solving the circuit's nodal analysis matrices."""
 
-import sys
 import copy
-import types
-import inspect
 import numpy as np
 import matplotlib.pyplot as plt
 
 from .stamps import Stamps
 from .netlist import Netlist
-from .parse import _parse_func
 
 from .differential import DAE_solve
 
@@ -21,20 +17,13 @@ class ModifiedNodalAnalysis:
 
     def __init__(self, circuit=None, transient=False):
         """Takes in netlist and builds node matrices for MNA."""
-        if circuit is not None:
-            if callable(circuit):
-                self.netlist = _parse_func(circuit)
-            elif isinstance(circuit, Netlist):
-                self.netlist = circuit
-            else:
-                raise TypeError(
-                    "The passed circuit must be a function or a `circuitlib.netlist.Netlist` object."
-                )
-
-            self.A1, self.A2, self.s = self._stamp_matrices(self.netlist, transient)
-
-    def __call__(self, *args, **kwargs):
-        pass
+        if isinstance(circuit, Netlist):
+            self.netlist = circuit
+        else:
+            raise TypeError(
+                "The passed circuit must be a `circuitlib.netlist.Netlist` object."
+            )
+        self.A1, self.A2, self.s = self._stamp_matrices(self.netlist, transient)
 
     def _stamp_matrices(self, netlist, transient):
         """Samp values into two square matrices for group 1 and group 2 components."""
@@ -126,12 +115,7 @@ class AC(ModifiedNodalAnalysis):
     def __init__(self, circuit):
         self.transient = False
         super().__init__(circuit=circuit)
-        if callable(circuit):
-            argspec = inspect.getfullargspec(circuit)
-            arg_dict = dict(zip(argspec.args, argspec.defaults))
-            self.freq = arg_dict.get("freq", None)
-        else:
-            self.freq = self.netlist.freq
+        self.freq = self.netlist.freq
         if self.freq is not None:
             if isinstance(self.freq, (int, float)):
                 self.freq = [
@@ -139,108 +123,37 @@ class AC(ModifiedNodalAnalysis):
                 ]  # TODO: do we need to put brackets around freq here?
             self.freq = np.array(self.freq)  # make freq array like for calculations
 
-        # Create function for solving MNA on the fly
-        def solve_matrix(freq, **kwargs):
-            if len(kwargs) > 0:
-                # Make copy so default values are preserved even if multiple
-                # calls made to function with different component values.
-                mna_ = self.copy()
-                mna_.update(**kwargs)
-            else:
-                mna_ = self
+    #         self._solve_matrix = self._add_func_signature(solve_matrix)
+    #         self.__call__ = self._solve_matrix
 
-            if len(mna_.undefined) > 0:
-                # Raise error if components have undefined values. Create
-                # readable string listing these components.
-                missing_vars = mna_.undefined[0]
-                if len(mna_.undefined) == 2:
-                    missing_vars += " and " + mna_.undefined[-1]
-                elif len(mna_.undefined) > 2:
-                    missing_vars += (
-                        ", "
-                        + ", ".join(mna_.undefined[1:-1])
-                        + " and "
-                        + mna_.undefined[-1]
-                    )
-                raise TypeError(f"{self} missing argument values for {missing_vars}")
+    def simulate(self, freq, **kwargs):
+        if len(kwargs) > 0:
+            # Make copy so default values are preserved even if multiple
+            # calls made to function with different component values.
+            mna_ = self.copy()
+            mna_.update(**kwargs)
+        else:
+            mna_ = self
 
-            return np.linalg.solve(
-                mna_.A1[None, :, :] + 1j * mna_.A2[None, :, :] * freq[:, None, None],
-                mna_.s[None, :],
-            )
+        if len(mna_.undefined) > 0:
+            # Raise error if components have undefined values. Create
+            # readable string listing these components.
+            missing_vars = mna_.undefined[0]
+            if len(mna_.undefined) == 2:
+                missing_vars += " and " + mna_.undefined[-1]
+            elif len(mna_.undefined) > 2:
+                missing_vars += (
+                    ", "
+                    + ", ".join(mna_.undefined[1:-1])
+                    + " and "
+                    + mna_.undefined[-1]
+                )
+            raise TypeError(f"{self} missing argument values for {missing_vars}")
 
-        self._solve_matrix = self._add_func_signature(solve_matrix)
-        self.__call__ = self._solve_matrix
-
-    def __call__(self, *args, **kwargs):
-        return self._solve_matrix(*args, **kwargs)
-
-    def _add_func_signature(self, func):
-        """Adds informative signature to `solve_matrix` substituted to `__call__`"""
-
-        func_args = [
-            0,
-            len(self.netlist) + 1,
-            func.__code__.co_nlocals,
-            func.__code__.co_stacksize,
-            func.__code__.co_flags,
-            func.__code__.co_code,
-            (),
-            (),
-            tuple(["freq"] + self.components + ["kwargs", "kwargs"]),
-            func.__code__.co_filename,
-            func.__code__.co_name,
-            func.__code__.co_firstlineno,
-            func.__code__.co_lnotab,
-        ]
-        if sys.version_info >= (3, 8):
-            func_args.insert(func.__code__.co_posonlyargcount, 1)
-        func_code = types.CodeType(*func_args)
-        new_func = types.FunctionType(func_code, globals())
-        func.__wrapped__ = new_func
-        func.__doc__ = """Generates function for simulating circuit.
-
-            Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
-            equation that must be solved is
-
-            .. math::
-            Ax = z
-
-            Where A describes the various impedances and currents flowing in
-            and out of each node, x is a vector of the voltages on each node of the
-            circuit, and z is a vector of the voltage and current source values. As the
-            impedance and source values are known, x can be solved for by taking the
-            inverse of A
-
-            .. math::
-            x = A^{-1}\ z
-
-            A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m
-            is the number of voltage sources. It is composed of four smaller matrices
-
-            .. math::
-            G B
-            C D
-
-
-            G is an n x n matrix that is composed of the inverse impedances connecting
-            each node. B is an n x m matrix of the connctions of the voltage sources.
-            C = B.T and D is an m x m matrix of zeros.
-
-            Args:
-                circuit (, optional): Function or spc.Netlist to create simulating
-                function from. Defaults to None.
-                freq (float, optional): Frequency/frequencies to simulate circuit over.
-                Defaults to 1000.0.
-
-            Raises:
-                SyntaxError: Raised if voltage source not specified for circuit.
-
-            Returns:
-                function that takes circuit component values as position and keyword
-                arguments and simulates voltage response of the circuit nodes.
-        """
-        return func
+        return np.linalg.solve(
+            mna_.A1[None, :, :] + 1j * mna_.A2[None, :, :] * freq[:, None, None],
+            mna_.s[None, :],
+        )
 
     def multimeter(self, pos_node, neg_node=0, mode="V", **kwargs):
         """Measures voltage, current or impedance between circuit nodes.
@@ -308,7 +221,25 @@ class AC(ModifiedNodalAnalysis):
         elif mode == "I":
             return (V[:, pos_node - 1] - V[:, neg_node - 1]) / Z
 
-    def bode(
+    def plot(
+        self,
+        pos_node,
+        neg_node=0,
+        mode="V",
+        figtype="bode",
+        figsize=(5.31, 5),
+        dpi=100,
+        ax=None,
+        **kwargs,
+    ):
+        if figtype == "bode":
+            return self._bode(pos_node, neg_node, mode, figsize, dpi, ax, **kwargs)
+        elif figtype == "nyquist":
+            return self._nyquist(pos_node, neg_node, mode, figsize, dpi, ax, **kwargs)
+        else:
+            raise TypeError(f"{figtype} is not a valid figure type")
+
+    def _bode(
         self,
         pos_node,
         neg_node=0,
@@ -386,7 +317,7 @@ class AC(ModifiedNodalAnalysis):
         ax[1].semilogx(freq, phase, **mpl_kwargs)
         return ax
 
-    def nyquist(
+    def _nyquist(
         self,
         pos_node,
         neg_node=0,
@@ -475,81 +406,70 @@ class Transient(ModifiedNodalAnalysis):
     def __init__(self, circuit):
         self.transient = True
         super().__init__(circuit=circuit)
-        if callable(circuit):
-            argspec = inspect.getfullargspec(circuit)
-            arg_dict = dict(zip(argspec.args, argspec.defaults))
-            self.time = arg_dict.get("time", None)
-        else:
-            self.time = self.netlist.time
+        self.time = self.netlist.time
         if self.time is not None:
             if isinstance(self.time, (int, float)):
                 self.time = [float(self.time)]
             self.time = np.array(self.time)  # make time array like for calculations
 
-        # TODO: Add DAE solver
-        # Create function for solving differentiable algebraic equations
-        # on the fly
-        def solve_DAE(time, step=0.001, initialise="zeros", **kwargs):
-            if len(kwargs) > 0:
-                # Make copy so default values are preserved even if multiple
-                # calls made to function with different component values.
-                mna_ = self.copy()
-                mna_.update(**kwargs)
-            else:
-                mna_ = self
+        # self._solve_DAE = self._add_func_signature(solve_DAE)
+        # self.__call__ = self._solve_DAE
 
-            if len(mna_.undefined) > 0:
-                # Raise error if components have undefined values. Create
-                # readable string listing these components.
-                missing_vars = mna_.undefined[0]
-                if len(mna_.undefined) == 2:
-                    missing_vars += " and " + mna_.undefined[-1]
-                elif len(mna_.undefined) > 2:
-                    missing_vars += (
-                        ", "
-                        + ", ".join(mna_.undefined[1:-1])
-                        + " and "
-                        + mna_.undefined[-1]
-                    )
-                raise TypeError(f"{self} missing argument values for {missing_vars}")
+    def simulate(self, time, step=0.001, initialise="zeros", **kwargs):
+        if len(kwargs) > 0:
+            # Make copy so default values are preserved even if multiple
+            # calls made to function with different component values.
+            mna_ = self.copy()
+            mna_.update(**kwargs)
+        else:
+            mna_ = self
 
-            # Solve for intitial conditions under DC
-            # Should solve for each voltage/current source at t=0
-            # Need to solve how to hadle the signal generators for each source
-            # TODO: could this use a DC class to solve for this?
-            init = self._initial_conditions(mna_, time[0], initialise)
-            # step = 0.001
-            # def transient():
-            #     print(mna_.A1)
-            #     print(mna_.A2)
-            #     print(init)
-            #     print(time[-1])
-            #     print(step)
-            #     print(mna_.netlist.components)
-            # transient = DAE_solve(
-            #     mna_.A1, mna_.A2, init, time[0], time[-1], step, mna_.netlist.components
-            # )
-            if isinstance(time, np.ndarray):
-                # time = np.ascontiguousarray(time)  # ensure array is C-contiguous
-                pass
-            elif len(time) == 2:
-                time = np.linspace(time[0], time[1], 1000)
-            transient = DAE_solve(time, mna_.A1, mna_.A2, init, mna_.netlist.components)
-            return transient
+        if len(mna_.undefined) > 0:
+            # Raise error if components have undefined values. Create
+            # readable string listing these components.
+            missing_vars = mna_.undefined[0]
+            if len(mna_.undefined) == 2:
+                missing_vars += " and " + mna_.undefined[-1]
+            elif len(mna_.undefined) > 2:
+                missing_vars += (
+                    ", "
+                    + ", ".join(mna_.undefined[1:-1])
+                    + " and "
+                    + mna_.undefined[-1]
+                )
+            raise TypeError(f"{self} missing argument values for {missing_vars}")
 
-        self._solve_DAE = self._add_func_signature(solve_DAE)
-        self.__call__ = self._solve_DAE
+        # Solve for intitial conditions under DC
+        # Should solve for each voltage/current source at t=0
+        # Need to solve how to hadle the signal generators for each source
+        # TODO: could this use a DC class to solve for this?
+        init = self._initial_conditions(mna_, time[0], initialise)
+        # transient = DAE_solve(
+        #     mna_.A1, mna_.A2, init, time[0], time[-1], step, mna_.netlist.components
+        # )
+        if isinstance(time, np.ndarray):
+            # time = np.ascontiguousarray(time)  # ensure array is C-contiguous
+            pass
+        elif len(time) == 2:
+            time = np.linspace(time[0], time[1], 1000)
+        transient = DAE_solve(time, mna_.A1, mna_.A2, init, mna_.netlist.components)
+        return transient
 
     def _initial_conditions(self, mna, time, initialise):
         """Determines initial conditions before transient analysis."""
+        # Initialises voltage/current sources to their value at `time[0]`
         if initialise == "auto":
             initialise = {}
+        # Initialises voltage/current sources to 0
         elif initialise == "zeros":
             initialise = dict.fromkeys(mna.netlist.components, 0)
         if not isinstance(initialise, dict):
-            raise TypeError("initialise parameter not a dictionary")
+            raise TypeError(
+                "initialise parameter not a dictionary of component value pairs."
+            )
         s = self._source_array(mna, time, initialise)
-        # Solve AC circuit when freq=0 as this is equivalent to DC
+        # Solve AC circuit when freq=0 (only using A1 array) as this is
+        # equivalent to DC conditions
         return np.linalg.solve(mna.A1, s)
 
     def _source_array(self, mna, time, initialise):
@@ -563,76 +483,6 @@ class Transient(ModifiedNodalAnalysis):
                 # signal at that time step if not defined.
                 s[-1 * val["group2_idx"]] = initialise.get(key, val["signal"](time))
         return s
-
-    def __call__(self, *args, **kwargs):
-        return self._solve_DAE(*args, **kwargs)
-
-    def _add_func_signature(self, func):
-        """Adds informative signature to `solve_matrix` substituted to `__call__`"""
-
-        func_args = [
-            0,
-            len(self.netlist) + 1,
-            func.__code__.co_nlocals,
-            func.__code__.co_stacksize,
-            func.__code__.co_flags,
-            func.__code__.co_code,
-            (),
-            (),
-            tuple(["time"] + self.components + ["kwargs", "kwargs"]),
-            func.__code__.co_filename,
-            func.__code__.co_name,
-            func.__code__.co_firstlineno,
-            func.__code__.co_lnotab,
-        ]
-        if sys.version_info >= (3, 8):
-            func_args.insert(func.__code__.co_posonlyargcount, 1)
-        func_code = types.CodeType(*func_args)
-        new_func = types.FunctionType(func_code, globals())
-        func.__wrapped__ = new_func
-        func.__doc__ = """Generates function for simulating circuit.
-
-            Modified nodal analysis defines a circuit by Kichhoff's circuit laws. The
-            equation that must be solved is
-
-            .. math::
-            Ax = z
-
-            Where A describes the various impedances and currents flowing in
-            and out of each node, x is a vector of the voltages on each node of the
-            circuit, and z is a vector of the voltage and current source values. As the
-            impedance and source values are known, x can be solved for by taking the
-            inverse of A
-
-            .. math::
-            x = A^{-1}\ z
-
-            A is an (n+m) x (n+m) matrix, where n is the number of circuit nodes and m
-            is the number of voltage sources. It is composed of four smaller matrices
-
-            .. math::
-            G B
-            C D
-
-
-            G is an n x n matrix that is composed of the inverse impedances connecting
-            each node. B is an n x m matrix of the connctions of the voltage sources.
-            C = B.T and D is an m x m matrix of zeros.
-
-            Args:
-                circuit (, optional): Function or spc.Netlist to create simulating
-                function from. Defaults to None.
-                time (float, optional): Frequency/frequencies to simulate circuit over.
-                Defaults to 1000.0.
-
-            Raises:
-                SyntaxError: Raised if voltage source not specified for circuit.
-
-            Returns:
-                function that takes circuit component values as position and keyword
-                arguments and simulates voltage response of the circuit nodes.
-        """
-        return func
 
     def multimeter(self, nodes, mode="V", **kwargs):
         """Measures voltage, current or impedance between circuit nodes.
