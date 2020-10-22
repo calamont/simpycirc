@@ -47,10 +47,10 @@ class ModifiedNodalAnalysis:
         stamp_funcs = Stamps(
             self.transient
         )  # TODO: does this need to be a class or could be dict?
-        for key, val in netlist.components.items():
-            if val["value"] is not None:
-                stamp = getattr(stamp_funcs, val["type"])
-                A1, A2, s = stamp(A1, A2, s, **val)
+        for component in netlist.components.values():
+            if component["value"] is not None:
+                component_stamp = getattr(stamp_funcs, component["type"])
+                A1, A2, s = component_stamp(A1, A2, s, **component)
         return A1, A2, s
 
     def update(self, **kwargs):
@@ -75,6 +75,8 @@ class ModifiedNodalAnalysis:
         """Deep copy of object. Needed for `__call__` if **kwargs supplied."""
         return copy.deepcopy(self)
 
+    # TODO: Are all the properties below needed? If not then we could get rid
+    # of them
     @property
     def nodes(self):
         """The nodes in the defined circuit."""
@@ -119,7 +121,7 @@ class ModifiedNodalAnalysis:
 
 
 class AC(ModifiedNodalAnalysis):
-    """AC analysis of circuit."""
+    """Frequency analysis of circuit."""
 
     def __init__(self, circuit):
         self.transient = False
